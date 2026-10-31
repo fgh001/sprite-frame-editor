@@ -1,0 +1,89 @@
+# 精灵帧动画编辑器 · Windows 打包配置
+#
+# 产物：build/windows/  （免安装绿色目录，直接双击 exe 运行）
+# 换平台时改 directories.output 即可，例如 build/linux、build/mac。
+#
+# 三个路径约定（和代码里的实现强相关，改动前先看注释）：
+#   ① data 根 = exe 所在目录/data      —— core/paths.ts resolveDataRoot()
+#   ② 项目根   = data 根的上一级       —— services/rembg-cli.ts projectRoot()
+#   ③ 所以 pyshim / scripts / data/models 必须放在 exe 同级（用 extraFiles），
+#      不能用 extraResources（那会进 resources/，findPyshim() 就找不到）
+
+appId: com.spriteframe.editor
+# 应用名（决定 exe 文件名、安装目录名、userData 目录名）。
+# 用英文是为了文件名 / 路径干净；界面上展示的中文名在 electron/ipc/app.ts 的 AppInfo.name。
+productName: SpriteFrameEditor
+# exe 属性「版权」里显示的内容
+copyright: Copyright © 2026 精灵帧动画编辑器
+
+directories:
+  # 按「平台-架构」分目录，不同架构的产物互不覆盖：
+  #   build/windows-x64/   ← windows x64
+  #   build/windows-ia32/  ← 以后打 32 位时用
+  # 实际值由 npm script 用 --config.directories.output 覆盖（见 package.json 的 dist:win:only），
+  # 这里写同一份值只是为了让直接调 electron-builder 时也落到同一个地方。
+  output: build/windows-x64
+  # 打包素材（图标等）从这里取：build-resources/icon.ico
+  # 文件名必须是 icon.ico，electron-builder 会自动识别，不需要在下面写 win.icon
+  buildResources: build-resources
+
+# ---------- 进 asar 的内容 ----------
+# node_modules 由 electron-builder 自动裁剪为 dependencies（devDependencies 不进包），
+# 这里只需要把源码 / 资产 / 打包产物本身排除掉。
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+  - "!**/*.map"
+  - "!electron/**"
+  - "!src/**"
+  - "!shared/**"
+  - "!scripts/**"
+  - "!pyshim/**"
+  - "!data/**"
+  - "!build/**"
+  - "!**/{.vscode,.idea,.git,.reasonix,.venv}/**"
+  - "!tsconfig*.json"
+  - "!vite.config.ts"
+
+# ---------- 放 exe 同级（不进 asar）----------
+extraFiles:
+  # 便携 Python + rembg：批量抠图的 rembg 路径靠它
+  - from: pyshim
+    to: pyshim
+  # rembg 调用的 CLI 脚本，路径由 projectRoot() 拼出来
+  - from: scripts/rembg_cli.py
+    to: scripts/rembg_cli.py
+  # 本地模型权重（rembg / BiRefNet 共用），listLocalModels() 直接扫这个目录
+  - from: data/models
+    to: data/models
+
+# ---------- 原生模块必须解包 ----------
+# onnxruntime 的 .node / .dll 无法从 asar 里加载；@imgly 自带模型资源同理。
+asarUnpack:
+  - "**/node_modules/onnxruntime-node/**/*"
+  - "**/node_modules/@imgly/background-removal-node/**/*"
+  - "**/node_modules/sharp/**/*"
+
+# 这些二进制是随 npm 包下发的预编译版本，不要重新构建
+npmRebuild: false
+
+# 下载 Electron 二进制时走国内镜像。
+# 这是 electron-builder 认可的写法（等价于旧 .npmrc 里的 electron_mirror，
+# 但不会被 npm 当成未知配置报警）。
+electronDownload:
+  mirror: https://npmmirror.com/mirrors/electron/
+
+win:
+  target:
+    - target: dir
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+  # 用现成的 .ico。不要改回 png —— electron-builder 会调 icon-tool.js 现场转换，
+  # 那个脚本在 Node 24 上退出时会崩（0xC0000005），ico 虽然转出来了，
+  # 但进程崩溃会让整个打包判定失败。直接给 ico 最稳。
+  icon: build-resources/icon.ico
+
+# 不需要自动发布
+publish: null

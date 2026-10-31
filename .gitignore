@@ -1,0 +1,27 @@
+# 依赖与构建产物
+node_modules/
+dist/
+dist-electron/
+release/
+# electron-builder 的打包产物（每个平台一个子目录，动辄几个 GB）
+build/
+
+# 便携数据目录（运行时生成，绝不入库）
+data/
+
+# 便携 Python 运行时（515 MB，含 rembg + onnxruntime）
+# 不入库：Git 存大二进制会让仓库越来越臃肿。换机器时重新准备一份即可（见 README）。
+pyshim/
+
+# Node / 编辑器
+npm-debug.log*
+.idea/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+
+# AI 助手（Reasonix）的工作目录：对话记录、附件截图、任务快照
+# 里面全是本地会话内容和个人图片，开源绝不能带上
+.reasonix/

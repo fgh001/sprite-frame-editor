@@ -1,0 +1,1298 @@
+/**
+ * 蓝色主题系统（深色 / 浅色两套）。
+ *
+ * 本文件在 styles.css 之后加载，是「唯一」决定配色的地方：
+ *   - 重新定义全部色彩令牌，styles.css 里遗留的紫色 #7c5cff 系列全部覆盖
+ *   - 把 styles.css 里硬编码的颜色（紫色高亮、青色文字、绿色按钮、棋盘格）
+ *     统一收敛到令牌，切换主题时不留死角
+ *   - 补一层质感：卡片阴影、输入焦点环、按钮过渡、侧边栏选中指示条
+ *
+ * 约定：颜色 / 阴影 / 过渡在这里写，布局（宽高、grid、flex）以 styles.css 为准，
+ * 本文件只保留原本就属于这里的少量布局规则（编辑器舞台、防溢出、弹窗列宽）。
+ */
+
+/* ================================================================
+   1. 色彩令牌
+   ================================================================ */
+
+:root,
+:root[data-theme='dark'] {
+  /* 背景层次：画布 → 面板 → 抬高 → 悬停，逐层提亮 */
+  --bg: #0a101c;
+  --bg-panel: #0f1728;
+  --bg-elevated: #16233a;
+  --bg-hover: #1b2b46;
+
+  /* 边框：soft 分隔、border 控件、strong 悬停 */
+  --border-soft: #16233a;
+  --border: #1e2e4a;
+  --border-strong: #2c4166;
+
+  /* 文字 */
+  --text: #e9eff9;
+  --text-dim: #9aabc4;
+  --text-faint: #6b7d99;
+
+  /* 主色：蓝 */
+  --accent: #3b82f6;
+  --accent-hover: #5b9bff;
+  --accent-strong: #2f6fe0;
+  --accent-soft: rgba(59, 130, 246, 0.15);
+  --accent-border: rgba(59, 130, 246, 0.45);
+  --accent-text: #8ab8ff;
+  --ring: rgba(59, 130, 246, 0.35);
+
+  /* 语义色 */
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.13);
+  --ok-border: rgba(52, 211, 153, 0.38);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.12);
+  --warn-border: rgba(251, 191, 36, 0.35);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.13);
+  --danger-border: rgba(248, 113, 113, 0.38);
+  --teal: var(--ok);
+
+  /* 透明区棋盘格 / 像素网格 */
+  --checker-a: #142035;
+  --checker-b: #0d1729;
+  --grid-line: rgba(130, 165, 220, 0.18);
+
+  /* 阴影与遮罩 */
+  --shadow-1: 0 1px 2px rgba(2, 8, 20, 0.4);
+  --shadow-2: 0 16px 40px rgba(2, 8, 20, 0.55);
+  --header-bg: rgba(15, 23, 40, 0.86);
+  --backdrop: rgba(6, 12, 24, 0.66);
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: #f2f6fc;
+  --bg-panel: #ffffff;
+  --bg-elevated: #e9f0fa;
+  --bg-hover: #dde8f6;
+
+  --border-soft: #e4ecf8;
+  --border: #d3e0f0;
+  --border-strong: #b4c8e2;
+
+  --text: #0e1a2b;
+  --text-dim: #4b5d75;
+  --text-faint: #7889a2;
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-strong: #1e40af;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-border: rgba(37, 99, 235, 0.38);
+  --accent-text: #1d4ed8;
+  --ring: rgba(37, 99, 235, 0.22);
+
+  --ok: #0f9d63;
+  --ok-soft: rgba(15, 157, 99, 0.1);
+  --ok-border: rgba(15, 157, 99, 0.32);
+  --warn: #b45309;
+  --warn-soft: rgba(180, 83, 9, 0.1);
+  --warn-border: rgba(180, 83, 9, 0.3);
+  --danger: #d92d20;
+  --danger-soft: rgba(217, 45, 32, 0.09);
+  --danger-border: rgba(217, 45, 32, 0.3);
+  --teal: var(--ok);
+
+  --checker-a: #e6eefa;
+  --checker-b: #ffffff;
+  --grid-line: rgba(37, 99, 235, 0.12);
+
+  --shadow-1: 0 1px 2px rgba(16, 42, 82, 0.07);
+  --shadow-2: 0 18px 44px rgba(16, 42, 82, 0.18);
+  --header-bg: rgba(255, 255, 255, 0.88);
+  --backdrop: rgba(16, 34, 60, 0.35);
+
+  color-scheme: light;
+}
+
+/* ================================================================
+   2. 基础
+   ================================================================ */
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui,
+    sans-serif;
+  letter-spacing: 0.01em;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--text);
+  letter-spacing: 0.015em;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* 键盘焦点统一蓝色环（鼠标点击不出现，避免满屏框） */
+.btn:focus-visible,
+.sidebar__item:focus-visible,
+.provider-chip:focus-visible,
+.slot-tab:focus-visible,
+.bg-chip:focus-visible,
+.theme-toggle:focus-visible,
+.kb-card:focus-visible,
+.link-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ================================================================
+   3. 顶栏 / 侧边栏
+   ================================================================ */
+
+.app-header {
+  background: var(--header-bg);
+  border-bottom: 1px solid var(--border-soft);
+  backdrop-filter: blur(8px);
+}
+
+.app-header h1 {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.app-header p {
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.sidebar {
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-soft);
+}
+
+.sidebar__brand {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.sidebar__brand strong {
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.sidebar__logo {
+  /* 现在是一张真实图片（src/assets/logo.png，由设计稿缩到 128×128） */
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 9px;
+  object-fit: cover;
+  background: var(--accent-soft);
+  box-shadow: 0 2px 8px var(--accent-soft);
+}
+
+.sidebar__group-title {
+  color: var(--text-faint);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.sidebar__item {
+  position: relative;
+  border-radius: 9px;
+  color: var(--text-dim);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sidebar__item:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+
+.sidebar__item.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--text);
+}
+
+/* 选中项左侧的蓝色指示条 */
+.sidebar__item.is-active::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  width: 3px;
+  height: 18px;
+  transform: translateY(-50%);
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+
+.sidebar__item-label {
+  color: inherit;
+  font-weight: 500;
+}
+
+.sidebar__item.is-active .sidebar__item-label {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.sidebar__item-hint {
+  color: var(--text-faint);
+}
+
+.sidebar__percent {
+  color: var(--accent-text);
+}
+
+.sidebar__footer {
+  border-top: 1px solid var(--border-soft);
+}
+
+.sidebar__footer-title {
+  color: var(--text-faint);
+}
+
+.sidebar__path {
+  color: var(--text-dim);
+}
+
+/* ================================================================
+   4. 卡片
+   ================================================================ */
+
+.card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  box-shadow: var(--shadow-1);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.card:hover {
+  border-color: var(--border);
+}
+
+.card--hint {
+  background: var(--bg-panel);
+  border-style: dashed;
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+/* 卡片标题单行省略，不挤压右侧按钮 */
+.card__head {
+  flex-wrap: wrap;
+}
+
+.card__head h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.card h3 {
+  font-weight: 650;
+}
+
+.muted {
+  color: var(--text-dim);
+}
+
+.stage-card:hover {
+  border-color: var(--border-strong);
+}
+
+.stage-card__index {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  color: var(--accent-text);
+  font-weight: 650;
+}
+
+.stage-card__export {
+  color: var(--text-dim);
+}
+
+/* ================================================================
+   5. 按钮
+   ================================================================ */
+
+.btn {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  font-weight: 500;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn--primary,
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(2, 8, 20, 0.25);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn--primary:active:not(:disabled) {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.btn--ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+
+.btn--danger,
+.btn--danger:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+}
+
+.btn--ok,
+.btn--ok:hover {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #ffffff;
+}
+
+.btn--ok:hover {
+  filter: brightness(1.08);
+}
+
+.link-btn {
+  color: var(--accent-text);
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+/* ================================================================
+   6. 表单
+   ================================================================ */
+
+.input,
+.select,
+.textarea {
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.input::placeholder,
+.textarea::placeholder {
+  color: var(--text-faint);
+}
+
+.input:hover:not(:disabled),
+.select:hover:not(:disabled),
+.textarea:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.input:focus,
+.select:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--ring);
+}
+
+.field__label {
+  color: var(--text-dim);
+  font-weight: 500;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.field__hint {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.field__hint--ok {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.field__hint--ok .ref-strip__name {
+  color: var(--ok);
+  background: var(--ok-soft);
+}
+
+.field__hint--warn {
+  color: var(--warn);
+}
+
+.checkbox {
+  color: var(--text-dim);
+}
+
+.checkbox input {
+  accent-color: var(--accent);
+}
+
+/* 滑块 + 数字输入并排 */
+.range {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--accent);
+}
+
+.input--num {
+  flex: none;
+  width: 68px;
+  height: 30px;
+  text-align: center;
+  padding: 0 6px;
+}
+
+/* ================================================================
+   7. 标签 / 徽章 / 提示条
+   ================================================================ */
+
+.tag {
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.tag--pending {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+.tag--ok {
+  background: var(--ok-soft);
+  border: 1px solid var(--ok-border);
+  color: var(--ok);
+}
+
+.tag--warn {
+  background: var(--warn-soft);
+  border: 1px solid var(--warn-border);
+  color: var(--warn);
+}
+
+.badge {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 6px;
+}
+
+.banner {
+  border-radius: 9px;
+  border: 1px solid var(--border);
+}
+
+.banner--ok {
+  background: var(--ok-soft);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
+.banner--error,
+.banner--err {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}
+
+.hint {
+  color: var(--text-faint);
+}
+
+.hint--warn {
+  color: var(--warn);
+}
+
+code {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+}
+
+/* ================================================================
+   8. 服务商 / 槽位 / 余额
+   ================================================================ */
+
+.provider-chip {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  border-radius: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.provider-chip:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.provider-chip.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+
+.slot-tab {
+  color: var(--text-dim);
+  border-radius: 8px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.slot-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.slot-tab.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.dot {
+  background: var(--text-faint);
+}
+
+.dot--ok {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
+}
+
+.balance-line {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+}
+
+.balance-line__total strong {
+  color: var(--text);
+}
+
+.balance-line__currency {
+  color: var(--text-dim);
+}
+
+.balance-note,
+.balance-foot {
+  color: var(--text-faint);
+}
+
+/* ================================================================
+   9. 弹窗
+   ================================================================ */
+
+.modal-backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(3px);
+}
+
+.modal {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-2);
+}
+
+.modal__head {
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.modal__foot {
+  border-top: 1px solid var(--border-soft);
+}
+
+/* 编辑器面板加宽，减少挤压换行 */
+.modal__body {
+  grid-template-columns: minmax(0, 1fr) 368px;
+  overscroll-behavior: contain;
+}
+
+/* ================================================================
+   10. 透明区棋盘格 / 像素网格
+   ================================================================ */
+
+.frame-player__stage,
+.studio-item img,
+.editor-stage,
+.kb-detail__preview {
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 50% / 18px 18px;
+}
+
+.frame-item {
+  background-color: var(--bg-elevated);
+  background-image: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%);
+}
+
+.kb-card__media {
+  background: repeating-conic-gradient(var(--checker-a) 0% 25%, var(--checker-b) 0% 50%) 50% / 16px 16px;
+}
+
+.editor-stage__grid {
+  background-image: linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+}
+
+/* ================================================================
+   11. 素材库
+   ================================================================ */
+
+.kb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 6px;
+  flex-wrap: wrap;
+}
+
+.kb-filters {
+  display: flex;
+  gap: 6px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+}
+
+.kb-filters .slot-tab {
+  flex: none;
+  padding: 0 12px;
+  height: 26px;
+  font-size: 12px;
+}
+
+.kb-search {
+  flex: 1;
+  min-width: 180px;
+  height: 30px;
+}
+
+.kb-empty {
+  padding: 28px 8px;
+  text-align: center;
+}
+
+.kb-card {
+  cursor: pointer;
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.kb-card:hover {
+  border-color: var(--border-strong);
+}
+
+.kb-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.kb-card__media {
+  display: block;
+  width: 100%;
+  height: 200px;
+  object-fit: contain;
+}
+
+.kb-detail__preview {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  margin: 10px 0;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+}
+
+/* ================================================================
+   12. 编辑器：缩放与舞台
+   ================================================================ */
+
+.editor-stage-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.editor-toolbar .btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.editor-stage {
+  position: relative;
+  display: block;
+  height: 60vh;
+  max-height: 60vh;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border-soft);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  /* 阻止滚动链传到外层栏：滚轮只缩放画布 */
+  overscroll-behavior: contain;
+}
+
+.editor-stage:active {
+  cursor: grabbing;
+}
+
+.editor-stage__canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+.editor-stage__image {
+  display: block;
+  max-width: none;
+  max-height: none;
+  cursor: crosshair;
+}
+
+/* ================================================================
+   13. 主题切换按钮 / 背景色选择
+   ================================================================ */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+/* 顶栏「AI 助手」按钮展开时的高亮态 */
+.theme-toggle.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+/* ---------- 背景色选择 ---------- */
+
+.bg-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.bg-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.bg-chip.is-active {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.bg-chip__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+}
+
+/* ================================================================
+   14. 排版：防溢出 + 紧凑（原本就在本文件里，原样保留）
+   ================================================================ */
+
+/* flex/grid 子项允许收缩，长文本不再撑破容器 */
+.stack,
+.card,
+.card > *,
+.modal__body > *,
+.editor-panel,
+.editor-stage-wrap,
+.field,
+.field__label,
+.input-row,
+.actions,
+.balance-line,
+.studio-item figcaption {
+  min-width: 0;
+}
+
+/* 长路径 / 长单词强制换行，绝不溢出 */
+.field__hint,
+.muted,
+.editor-tip,
+.balance-note,
+.provider-note,
+.provider-chip,
+p,
+li {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* 按钮 / 胶囊 / 标签：文字不换行，靠容器换行来排布 */
+.btn,
+.bg-chip,
+.provider-chip,
+.slot-tab,
+.tag,
+.theme-toggle {
+  white-space: nowrap;
+}
+
+.actions {
+  flex-wrap: wrap;
+}
+
+/* 侧边栏 / 工具栏的说明单行省略 */
+.sidebar__item-hint,
+.editor-toolbar .field__hint {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ================================================================
+   15. 滚动条
+   ================================================================ */
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  background-clip: padding-box;
+}
+
+/* ================================================================
+   16. 生成流水线总览
+   ================================================================ */
+
+.pipeline-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.pipeline-hero__text {
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.pipeline-hero__text h2 {
+  font-size: 16px;
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
+.pipeline-stats {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+
+.pipeline-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 72px;
+}
+
+.pipeline-stat__value {
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.2;
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.pipeline-stat__label {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* 整张卡片可点：抹掉 button 的默认外观，键盘也能聚焦 */
+.stage-card--link {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.stage-card--link:hover {
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-2);
+}
+
+.stage-card--link:hover .stage-card__head h3 {
+  color: var(--accent-text);
+}
+
+.stage-card--link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ================================================================
+   17. 布局节奏与控件对齐
+   --------------------------------------------------------------
+   「堆砌感」的三个来源，逐条治：
+     ① 所有间距都是同一个值 → 没有节奏   → 按 8pt 网格分层（20 / 18 / 12 / 8）
+     ② 标题、控件、按钮视觉重量接近     → 卡片头工具降级、操作区加分隔线
+     ③ 按钮和输入框不等高，并排就错位   → 统一 32px
+   ================================================================ */
+
+/* ---- 页面留白 ---- */
+.app-header {
+  padding: 20px 32px 16px;
+}
+
+.app-content {
+  padding: 22px 32px 48px;
+}
+
+/* ---- 卡片之间拉开距离，一屏不再糊成一片 ---- */
+.stack {
+  gap: 20px;
+  max-width: 1120px;
+}
+
+.settings-layout {
+  gap: 18px;
+}
+
+/* ---- 卡片内边距与标题区 ---- */
+.card {
+  padding: 20px 22px;
+}
+
+.card__head {
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* 卡片头右侧的次要工具（打开目录、状态标签）：降一级，别和主操作抢视线 */
+.card__head .actions--inline {
+  gap: 6px;
+}
+
+.card__head .btn {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+}
+
+.card__head .tag {
+  height: 20px;
+}
+
+.card h2 {
+  font-size: 15px;
+}
+
+.card h3 {
+  font-size: 13.5px;
+}
+
+/* ---- 表单节奏：字段之间 18px，首个字段贴齐标题区 ---- */
+.field {
+  margin-top: 18px;
+}
+
+.field:first-of-type {
+  margin-top: 0;
+}
+
+.field__label {
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+
+.checkbox {
+  margin-top: 18px;
+}
+
+/* ---- 控件等高：按钮 / 输入框 / 下拉并排时不再一高一低 ---- */
+.input,
+.select,
+.btn,
+.input--num {
+  height: 32px;
+}
+
+.textarea {
+  height: auto;
+  min-height: 88px;
+}
+
+/* ---- 操作区独立成块：上方一条细线，和表单内容分开 ---- */
+.card > .actions {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+}
+
+/* 卡片头里的操作组不参与这条分隔 */
+.card__head .actions {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ---- 提示条在两个区块之间时也不要贴边 ---- */
+.card .banner {
+  margin: 14px 0 0;
+}
+
+/* ---- 操作区末尾的次要按钮：靠右，和主操作拉开距离 ---- */
+.actions__end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ---- 素材库工具栏：筛选 / 搜索 / 操作 一行排开 ---- */
+.kb-toolbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* ================================================================
+   18. 可辨识度：按钮对比度 + 下拉框箭头
+   ================================================================ */
+
+/* 下拉箭头：.select 用了 appearance: none 去掉原生箭头，这里补一个自绘的，
+   颜色跟着主题走（深色用 --text-faint，浅色用同档灰蓝） */
+:root,
+:root[data-theme='dark'] {
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none' stroke='%236b7d99' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
+}
+
+:root[data-theme='light'] {
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none' stroke='%237889a2' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5 6 6.5l5-5'/%3E%3C/svg%3E");
+}
+
+.select {
+  appearance: none;
+  cursor: pointer;
+  padding-right: 32px;
+  background-image: var(--select-arrow);
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 11px 8px;
+}
+
+.select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* ghost 按钮改成实底：
+   原来是 background: transparent，落在提示条 / 选中卡片的彩色底上，
+   边框和文字都跟背景糊在一起，「定位文件夹」这类按钮几乎看不见。 */
+.btn--ghost {
+  background: var(--bg-panel);
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+
+/* 提示条里的操作按钮：小一号，但必须有实底和更亮的文字 */
+.banner .btn {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  background: var(--bg-panel);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.banner .btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent-border);
+  color: var(--accent-text);
+}
+
+/* 「提示文字 + 右侧操作按钮」的提示条：横排两端对齐，
+   否则按钮会紧贴在文字后面，看不出是可点的独立操作 */
+.banner--with-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.banner--with-action > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ================================================================
+   19. 文本域：撑满字段宽度 + 够用的高度
+   ================================================================ */
+
+/* .field 是 block 容器，.input 上的 flex: 1 在它里面不生效，
+   <textarea> 就退回浏览器默认宽度（约 20 字符），于是又窄又缩在左边。 */
+.textarea,
+.field > .input,
+.field > .select {
+  width: 100%;
+}
+
+.textarea {
+  min-height: 120px;
+  line-height: 1.65;
+  resize: vertical;
+  /* 长提示词 / 长单词不撑破卡片 */
+  overflow-wrap: anywhere;
+}
+
+/* 右侧助手栏很窄，输入框不用那么高 */
+.assistant textarea {
+  min-height: 72px;
+}
+
+/* ================================================================
+   20. 并排字段对齐
+   ================================================================ */
+
+/* .studio-params 是两列 grid（尺寸 / 数量、分辨率 / 时长这种并排字段）。
+   里面的 .field 是并排关系，不能再吃 .field 的 margin-top —— 否则第二列整体
+   往下掉 18px，两个标签和两个下拉框就不在一条水平线上了。 */
+.studio-params > .field {
+  margin-top: 0;
+}
+
+/* 两列标签高度不一定相同（一列带徽章、一列不带），让控件按底边对齐，
+   保证下拉框 / 输入框始终齐平 */
+.studio-params {
+  align-items: end;
+}
+

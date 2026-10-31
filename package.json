@@ -1,0 +1,42 @@
+{
+  "name": "sprite-frame-editor",
+  "productName": "SpriteFrameEditor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "精灵帧动画编辑器：图片 → 循环视频 → 2D 帧动画 → 帧序列导出",
+  "author": "SpriteFrameEditor contributors",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fgh001/sprite-frame-editor.git"
+  },
+  "main": "dist-electron/main.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build:main": "node scripts/build-main.mjs",
+    "build:renderer": "vite build",
+    "build": "npm run build:main && npm run build:renderer",
+    "start": "npm run build && electron .",
+    "icon": "node scripts/make-ico.mjs",
+    "clean:win": "node scripts/clean-dist.mjs windows-x64",
+    "dist:win": "npm run icon && npm run build && npm run clean:win && electron-builder --win --x64 --config.directories.output=build/windows-x64 && node scripts/package-dir.mjs windows-x64",
+    "dist:win:only": "npm run icon && npm run clean:win && electron-builder --win --x64 --config.directories.output=build/windows-x64 && node scripts/package-dir.mjs windows-x64",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
+  },
+  "dependencies": {
+    "@imgly/background-removal-node": "^1.4.5",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}
