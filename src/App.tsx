@@ -101,6 +101,12 @@ export function App(): React.JSX.Element {
     })();
   }, []);
 
+  /* 窗口标题：index.html 里写的是英文占位，真正显示的名字跟着界面语言走。
+     不设的话，HTML 的 <title> 会盖掉 BrowserWindow 那边的三语标题。 */
+  useEffect(() => {
+    document.title = t('app.name', lang);
+  }, [lang]);
+
   // 启动时应用保存过的主题
   useEffect(() => {
     void (async () => {
