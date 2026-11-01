@@ -10,6 +10,7 @@ import { BACKGROUND_PRESETS, pickAutoBackground, unitPriceOf } from '@shared/pri
 import { getProviderPreset } from '@shared/providers';
 import { ImageEditorModal } from '../components/ImageEditorModal';
 import { setBusy, tryStart } from '../state/busy';
+import { useDataRefresh } from '../state/refresh';
 import { t, useLang } from '../i18n';
 
 // 豆包 Seedream 5.x 用档位（1K/2K）或像素值；像素需落在 921600–4624220 之间
@@ -73,6 +74,18 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
       if (found) setSlot(found);
     })();
   }, []);
+
+  /* 这个页面是常驻挂载的（切页只是 display:none），所以槽位状态必须能刷新：
+     在设置页保存/删除 API Key 后要立刻反映出来，否则会一直显示配置前的样子。 */
+  useDataRefresh(() => {
+    void (async () => {
+      const res = await window.skeletonElf.settings.getSlots();
+      if (!res.ok) return;
+      const found = res.data.find((item) => item.slot === 'image');
+      if (found) setSlot(found);
+    })();
+    void loadUsage();
+  });
 
   useEffect(() => {
     void loadUsage();

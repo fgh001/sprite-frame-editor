@@ -73,9 +73,14 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
     void loadImages();
   }, [loadImages]);
 
-  /* 素材库导入/改名/删除图片后，这里的候选图列表也要刷新 */
+  /* 素材库导入/改名/删除图片后，这里的候选图列表要刷新；
+     在设置页保存/删除视频槽位的 Key 后，槽位状态也要刷新（否则一直显示配置前的样子）。 */
   useDataRefresh(() => {
     void loadImages();
+    void (async () => {
+      const slots = await window.skeletonElf.settings.getSlots();
+      if (slots.ok) setSlot(slots.data.find((item) => item.slot === 'video') ?? null);
+    })();
   });
 
   // 订阅主进程推送的进度

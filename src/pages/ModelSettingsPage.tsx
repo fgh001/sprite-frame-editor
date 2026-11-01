@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { BalanceInfo, ModelInfo, SaveSlotInput, SlotKey, SlotSettingsView, TestResult, UsageStats } from '@shared/ipc';
 import { getProviderPreset, presetsFor, type ProviderId } from '@shared/providers';
 import { t, useLang } from '../i18n';
+import { notifyDataChanged } from '../state/refresh';
 
 const SLOTS: SlotKey[] = ['chat', 'image', 'video'];
 
@@ -261,6 +262,9 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
       }),
     });
     if (activeSlot === 'chat' && preset.balance !== 'none') void refreshBalance();
+    /* 让别的页面知道槽位变了：生图/生视频/AI 助手都缓存了自己的 slot 状态，
+       不广播的话它们会一直显示配置前的样子（看起来像「配置没生效」）。 */
+    notifyDataChanged();
     return true;
   };
 
@@ -329,6 +333,8 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
       kind: 'ok',
       text: t('ms.api.clearOk', lang, { label: t(preset.labelKey, lang) }),
     });
+    // 删掉 Key 之后别的页面要立刻知道「现在没配了」
+    notifyDataChanged();
   };
 
   if (loadError) {
