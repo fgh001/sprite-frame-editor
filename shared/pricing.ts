@@ -31,17 +31,18 @@ export function estimateImageCost(model: string, count: number): number | null {
 export interface BackgroundChoice {
   /** hex 颜色，例如 #FFFFFF */
   color: string;
-  label: string;
+  /** 文案 key：界面和主进程共用一份，按当前语言取（见 shared/err-i18n.ts） */
+  labelKey: string;
 }
 
 /** 供界面选择的纯色背景（都便于做色键抠图） */
 export const BACKGROUND_PRESETS: BackgroundChoice[] = [
-  { color: '#FFFFFF', label: '纯白' },
-  { color: '#000000', label: '纯黑' },
-  { color: '#00B140', label: '绿幕' },
-  { color: '#0047AB', label: '钴蓝' },
-  { color: '#808080', label: '中灰' },
-  { color: '#FF00FF', label: '洋红' },
+  { color: '#FFFFFF', labelKey: 'bg.white' },
+  { color: '#000000', labelKey: 'bg.black' },
+  { color: '#00B140', labelKey: 'bg.green' },
+  { color: '#0047AB', labelKey: 'bg.cobalt' },
+  { color: '#808080', labelKey: 'bg.gray' },
+  { color: '#FF00FF', labelKey: 'bg.magenta' },
 ];
 
 /**
@@ -58,20 +59,20 @@ export function pickAutoBackground(prompt: string): BackgroundChoice {
   const warmish = /red|红|fire|火|orange|橙|yellow|黄|gold|金|棕|brown|木|wood|沙|sand|铜|copper/.test(text);
   const purpleish = /purple|紫|magenta|洋红|粉|pink|violet|薰衣草|lavender/.test(text);
 
-  if (greanish) return { color: '#FF00FF', label: '洋红（避开绿色主体）' };
-  if (blueish) return { color: '#FF00FF', label: '洋红（避开蓝色主体）' };
-  if (warmish) return { color: '#0047AB', label: '钴蓝（避开暖色主体）' };
-  if (purpleish) return { color: '#00B140', label: '绿幕（避开紫/粉主体）' };
-  return { color: '#FF00FF', label: '洋红（默认，撞色概率最低）' };
+  if (greanish) return { color: '#FF00FF', labelKey: 'bg.magentaAvoidGreen' };
+  if (blueish) return { color: '#FF00FF', labelKey: 'bg.magentaAvoidBlue' };
+  if (warmish) return { color: '#0047AB', labelKey: 'bg.cobaltAvoidWarm' };
+  if (purpleish) return { color: '#00B140', labelKey: 'bg.greenAvoidPurple' };
+  return { color: '#FF00FF', labelKey: 'bg.magentaDefault' };
 }
 
 /** 拼在用户提示词后面的硬约束，保证出图背景是纯色 */
-export function buildBackgroundPrompt(color: string): string {
+export function buildBackgroundPrompt(color: string, text: (key: string, vars?: Record<string, string>) => string): string {
   return [
     '',
-    '【背景要求】',
-    `- 使用单一纯色背景，颜色严格为 ${color}`,
-    '- 背景必须完全平整：无渐变、无纹理、无阴影、无地面、无道具、无其他角色',
-    '- 主体完整居中，轮廓清晰，边缘干净，不要有与背景融合的柔光或烟雾',
+    text('bgPrompt.header'),
+    text('bgPrompt.color', { color }),
+    text('bgPrompt.flat'),
+    text('bgPrompt.subject'),
   ].join('\n');
 }

@@ -306,6 +306,55 @@ const zhCN: Dict = {
     '【背景要求】严格保持原图的纯色背景不变：颜色、亮度、平整度都不得变化；禁止新增地面、道具、光斑、烟雾、阴影或渐变，禁止更换场景或改变画面构图。',
   'prompt.video.ref':
     '【参考要求】参考素材仅用于参考动作节奏与姿态变化；不要复制参考素材里的角色外观、服装、配色或画风，保持原图美术风格不变。',
+
+  /* ---------- 服务商预设（下拉里显示的名称与说明） ---------- */
+  'cap.chat': '文本 / 推理',
+  'cap.image': '图像生成',
+  'cap.video': '视频生成',
+  'balance.supported': '支持余额查询',
+  'balance.unsupported': '该服务商未提供余额查询接口',
+  'provider.doubao.label': '豆包 · 火山方舟（图片 / 视频 / 文本）',
+  'provider.doubao.note':
+    '图片默认用 Seedream 5.0-flash：0.12 元/张（不分分辨率档位，约 15–20 秒出图，支持透明背景 / 图层拆分 / 图生图），比 5.0-pro（0.3 元/张）便宜 2.5 倍、快 6 倍；要极致画质可切到 doubao-seedream-5-0-pro-260628。视频用 Seedance 2.5（1.0 已下架）：480P/720P 70 元、1080P 77 元每百万 tokens（5 秒 480P ≈ 3.36 元），且官方要求账户余额 ≥ 200 元才能开通。返回的 URL 24 小时后失效，本应用会立刻下载存档。',
+  'provider.deepseek.label': 'DeepSeek 深度求索（文本）',
+  'provider.deepseek.note':
+    '只能做文本 / 看图理解，不能生图。deepseek-chat 会路由到 deepseek-flash（输入支持图片，可直接喂素材库参考图），另有 deepseek-v4-pro。',
+  'provider.openai.label': 'OpenAI（文本 / 图像）',
+  'provider.openai.note':
+    '图像走 Images API（gpt-image-1）。官方没有公开余额接口，额度到 platform.openai.com 查看。',
+  'provider.siliconflow.label': 'SiliconFlow 硅基流动（文本 / 图像）',
+  'provider.siliconflow.note':
+    '国内可充值，图像模型如 FLUX.1、Kolors；接口为 OpenAI 兼容 /images/generations。',
+  'provider.zhipu.label': '智谱 GLM（文本 / 图像）',
+  'provider.zhipu.note': 'CogView 系列出图，接口为 OpenAI 兼容模式。',
+  'provider.openrouter.label': 'OpenRouter（文本）',
+  'provider.openrouter.note': '聚合多家文本模型，支持查询 credit / 已用量。',
+  'provider.moonshot.label': 'Kimi（月之暗面，文本）',
+  'provider.moonshot.note': '支持查询账户余额（含代金券 / 现金）。',
+  'provider.qwen.label': '通义千问（文本）',
+  'provider.qwen.note': '使用 compatible-mode 兼容接口；万相出图是另一套异步接口，暂未接入。',
+  'provider.ollama.label': 'Ollama（本地文本）',
+  'provider.ollama.note': '本机运行，无需 API Key（需先启动 ollama serve）。',
+  'provider.custom.label': '自定义（OpenAI 兼容 / 中转站）',
+  'provider.custom.note':
+    '填任意 OpenAI 兼容接口：文本走 /chat/completions、图像走 /images/generations。',
+
+  /* ---------- 键控背景色名称 ---------- */
+  'bg.white': '纯白',
+  'bg.black': '纯黑',
+  'bg.green': '绿幕',
+  'bg.cobalt': '钴蓝',
+  'bg.gray': '中灰',
+  'bg.magenta': '洋红',
+  'bg.magentaAvoidGreen': '洋红（避开绿色主体）',
+  'bg.magentaAvoidBlue': '洋红（避开蓝色主体）',
+  'bg.cobaltAvoidWarm': '钴蓝（避开暖色主体）',
+  'bg.greenAvoidPurple': '绿幕（避开紫/粉主体）',
+  'bg.magentaDefault': '洋红（默认，撞色概率最低）',
+  'bgPrompt.header': '【背景要求】',
+  'bgPrompt.color': '- 使用单一纯色背景，颜色严格为 {color}',
+  'bgPrompt.flat': '- 背景必须完全平整：无渐变、无纹理、无阴影、无地面、无道具、无其他角色',
+  'bgPrompt.subject': '- 主体完整居中，轮廓清晰，边缘干净，不要有与背景融合的柔光或烟雾',
 };
 
 const zhTW: Dict = {
@@ -602,6 +651,55 @@ const zhTW: Dict = {
     '【背景要求】嚴格保持原圖的純色背景不變：顏色、亮度、平整度都不得變化；禁止新增地面、道具、光斑、煙霧、陰影或漸層，禁止更換場景或改變畫面構圖。',
   'prompt.video.ref':
     '【參考要求】參考素材僅用於參考動作節奏與姿態變化；不要複製參考素材裡的角色外觀、服裝、配色或畫風，保持原圖美術風格不變。',
+
+  /* ---------- 服務商預設 ---------- */
+  'cap.chat': '文字 / 推理',
+  'cap.image': '影像生成',
+  'cap.video': '影片生成',
+  'balance.supported': '支援餘額查詢',
+  'balance.unsupported': '該服務商未提供餘額查詢介面',
+  'provider.doubao.label': '豆包 · 火山方舟（圖片 / 影片 / 文字）',
+  'provider.doubao.note':
+    '圖片預設用 Seedream 5.0-flash：0.12 元/張（不分解析度檔位，約 15–20 秒出圖，支援透明背景 / 圖層拆分 / 圖生圖），比 5.0-pro（0.3 元/張）便宜 2.5 倍、快 6 倍；要極致畫質可切到 doubao-seedream-5-0-pro-260628。影片用 Seedance 2.5（1.0 已下架）：480P/720P 70 元、1080P 77 元每百萬 tokens（5 秒 480P ≈ 3.36 元），且官方要求帳戶餘額 ≥ 200 元才能開通。回傳的 URL 24 小時後失效，本應用會立刻下載存檔。',
+  'provider.deepseek.label': 'DeepSeek 深度求索（文字）',
+  'provider.deepseek.note':
+    '只能做文字 / 看圖理解，不能生圖。deepseek-chat 會路由到 deepseek-flash（輸入支援圖片，可直接餵素材庫參考圖），另有 deepseek-v4-pro。',
+  'provider.openai.label': 'OpenAI（文字 / 影像）',
+  'provider.openai.note':
+    '影像走 Images API（gpt-image-1）。官方沒有公開餘額介面，額度到 platform.openai.com 查看。',
+  'provider.siliconflow.label': 'SiliconFlow 矽基流動（文字 / 影像）',
+  'provider.siliconflow.note':
+    '中國境內可儲值，影像模型如 FLUX.1、Kolors；介面為 OpenAI 相容 /images/generations。',
+  'provider.zhipu.label': '智譜 GLM（文字 / 影像）',
+  'provider.zhipu.note': 'CogView 系列出圖，介面為 OpenAI 相容模式。',
+  'provider.openrouter.label': 'OpenRouter（文字）',
+  'provider.openrouter.note': '聚合多家文字模型，支援查詢 credit / 已用量。',
+  'provider.moonshot.label': 'Kimi（月之暗面，文字）',
+  'provider.moonshot.note': '支援查詢帳戶餘額（含代金券 / 現金）。',
+  'provider.qwen.label': '通義千問（文字）',
+  'provider.qwen.note': '使用 compatible-mode 相容介面；萬相出圖是另一套非同步介面，暫未接入。',
+  'provider.ollama.label': 'Ollama（本機文字）',
+  'provider.ollama.note': '本機執行，無需 API Key（需先啟動 ollama serve）。',
+  'provider.custom.label': '自訂（OpenAI 相容 / 中轉站）',
+  'provider.custom.note':
+    '填任意 OpenAI 相容介面：文字走 /chat/completions、影像走 /images/generations。',
+
+  /* ---------- 鍵控背景色名稱 ---------- */
+  'bg.white': '純白',
+  'bg.black': '純黑',
+  'bg.green': '綠幕',
+  'bg.cobalt': '鈷藍',
+  'bg.gray': '中灰',
+  'bg.magenta': '洋紅',
+  'bg.magentaAvoidGreen': '洋紅（避開綠色主體）',
+  'bg.magentaAvoidBlue': '洋紅（避開藍色主體）',
+  'bg.cobaltAvoidWarm': '鈷藍（避開暖色主體）',
+  'bg.greenAvoidPurple': '綠幕（避開紫/粉主體）',
+  'bg.magentaDefault': '洋紅（預設，撞色機率最低）',
+  'bgPrompt.header': '【背景要求】',
+  'bgPrompt.color': '- 使用單一純色背景，顏色嚴格為 {color}',
+  'bgPrompt.flat': '- 背景必須完全平整：無漸層、無紋理、無陰影、無地面、無道具、無其他角色',
+  'bgPrompt.subject': '- 主體完整居中，輪廓清晰，邊緣乾淨，不要有與背景融合的柔光或煙霧',
 };
 
 const en: Dict = {
@@ -908,9 +1006,66 @@ const en: Dict = {
     '[Background] Keep the original flat background exactly as-is: colour, brightness and evenness must not change. Do not add ground, props, light spots, smoke, shadows or gradients, and do not change the scene or the composition.',
   'prompt.video.ref':
     '[Reference] The reference images are only for motion rhythm and pose changes. Do not copy the reference character’s look, clothing, palette or art style — keep the original artwork’s style unchanged.',
+
+  /* ---------- Provider presets ---------- */
+  'cap.chat': 'Text / reasoning',
+  'cap.image': 'Image generation',
+  'cap.video': 'Video generation',
+  'balance.supported': 'Balance query supported',
+  'balance.unsupported': 'This provider does not expose a balance endpoint',
+  'provider.doubao.label': 'Doubao · Volcano Ark (image / video / text)',
+  'provider.doubao.note':
+    'Images default to Seedream 5.0-flash: 0.12 CNY each (one price for every resolution, roughly 15–20s per image, supports transparent backgrounds / layer separation / image-to-image), 2.5× cheaper and 6× faster than 5.0-pro (0.3 CNY). Switch to doubao-seedream-5-0-pro-260628 for maximum quality. Video uses Seedance 2.5 (1.0 is retired): 70 CNY per million tokens at 480P/720P and 77 CNY at 1080P (a 5s 480P clip ≈ 3.36 CNY), and the provider requires a balance of at least 200 CNY to activate it. Returned URLs expire after 24 hours, so this app downloads them immediately.',
+  'provider.deepseek.label': 'DeepSeek (text)',
+  'provider.deepseek.note':
+    'Text and image understanding only — no image generation. deepseek-chat routes to deepseek-flash (image input works, so you can feed reference images straight from the asset library); deepseek-v4-pro is also available.',
+  'provider.openai.label': 'OpenAI (text / image)',
+  'provider.openai.note':
+    'Images go through the Images API (gpt-image-1). There is no public balance endpoint; check usage at platform.openai.com.',
+  'provider.siliconflow.label': 'SiliconFlow (text / image)',
+  'provider.siliconflow.note':
+    'Top-ups are available in mainland China; image models include FLUX.1 and Kolors, through the OpenAI-compatible /images/generations endpoint.',
+  'provider.zhipu.label': 'Zhipu GLM (text / image)',
+  'provider.zhipu.note': 'CogView models for images, through the OpenAI-compatible API.',
+  'provider.openrouter.label': 'OpenRouter (text)',
+  'provider.openrouter.note': 'Aggregates many text models and exposes credit / usage queries.',
+  'provider.moonshot.label': 'Kimi · Moonshot (text)',
+  'provider.moonshot.note': 'Supports account balance queries (vouchers and cash).',
+  'provider.qwen.label': 'Qwen · Tongyi (text)',
+  'provider.qwen.note':
+    'Uses the compatible-mode endpoint. Wanxiang image generation is a separate async API and is not integrated yet.',
+  'provider.ollama.label': 'Ollama (local text)',
+  'provider.ollama.note': 'Runs locally, no API key needed (start ollama serve first).',
+  'provider.custom.label': 'Custom (OpenAI-compatible / proxy)',
+  'provider.custom.note':
+    'Any OpenAI-compatible endpoint: text via /chat/completions, images via /images/generations.',
+
+  /* ---------- Keying background colour names ---------- */
+  'bg.white': 'Pure white',
+  'bg.black': 'Pure black',
+  'bg.green': 'Green screen',
+  'bg.cobalt': 'Cobalt blue',
+  'bg.gray': 'Mid grey',
+  'bg.magenta': 'Magenta',
+  'bg.magentaAvoidGreen': 'Magenta (contrasts with a green subject)',
+  'bg.magentaAvoidBlue': 'Magenta (contrasts with a blue subject)',
+  'bg.cobaltAvoidWarm': 'Cobalt blue (contrasts with a warm subject)',
+  'bg.greenAvoidPurple': 'Green screen (contrasts with a purple/pink subject)',
+  'bg.magentaDefault': 'Magenta (default — least likely to clash)',
+  'bgPrompt.header': '[Background requirements]',
+  'bgPrompt.color': '- Use a single flat background colour, exactly {color}',
+  'bgPrompt.flat':
+    '- The background must be perfectly even: no gradient, no texture, no shadow, no ground, no props, no other characters',
+  'bgPrompt.subject':
+    '- Keep the subject complete and centred, with clean sharp contours and no glow or smoke blending into the background',
 };
 
-const DICTS: Record<Lang, Dict> = { 'zh-CN': zhCN, 'zh-TW': zhTW, en };
+/**
+ * 供渲染层复用：src/i18n 的 t() 会把它当第二回落层。
+ * 这样「服务商说明 / 背景色名」这类主进程也要用的文案只维护一份。
+ */
+export const MAIN_DICTS: Record<Lang, Dict> = { 'zh-CN': zhCN, 'zh-TW': zhTW, en };
+const DICTS = MAIN_DICTS;
 
 /** 主进程侧的「当前界面语言」缓存：由 electron/core/ui.ts 同步过来 */
 let currentLang: Lang = 'zh-CN';

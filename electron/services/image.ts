@@ -181,8 +181,8 @@ export async function generateImages(input: GenerateImageInput): Promise<Generat
     throw new Error(msg('err.image.noKey'));
   }
 
-  // 纯色背景约束拼在用户提示词后面
-  const fullPrompt = `${prompt}${buildBackgroundPrompt(background)}`;
+  // 纯色背景约束拼在用户提示词后面（跟随界面语言）
+  const fullPrompt = `${prompt}${buildBackgroundPrompt(background, (key, vars) => msg(key, vars))}`;
 
   const startedAt = Date.now();
   const plan = buildRequestPlan(runtime, fullPrompt, input.size, count);

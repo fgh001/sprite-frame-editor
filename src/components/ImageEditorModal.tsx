@@ -455,7 +455,7 @@ export function ImageEditorModal({
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        setLoadError('无法创建画布上下文');
+        setLoadError(t('ie.err.canvasCtx', lang));
         return;
       }
       ctx.drawImage(img, 0, 0);
@@ -485,7 +485,7 @@ export function ImageEditorModal({
       originalSnapshotRef.current = image.dataUrl;
       setReady(true);
     };
-    img.onerror = () => setLoadError('图片解码失败');
+    img.onerror = () => setLoadError(t('ie.err.imageDecode', lang));
     img.src = image.dataUrl;
     return () => {
       cancelled = true;
@@ -1200,7 +1200,7 @@ export function ImageEditorModal({
       const img = await new Promise<HTMLImageElement>((resolve, reject) => {
         const el = new Image();
         el.onload = () => resolve(el);
-        el.onerror = () => reject(new Error('解码失败'));
+        el.onerror = () => reject(new Error(t('ie.err.decodeFailed', lang)));
         el.src = dataUrl;
       });
       const w = img.naturalWidth;
@@ -1349,7 +1349,7 @@ export function ImageEditorModal({
       const img = new Image();
       await new Promise<void>((resolve, reject) => {
         img.onload = () => resolve();
-        img.onerror = () => reject(new Error('AI 结果解码失败'));
+        img.onerror = () => reject(new Error(t('ie.err.aiDecode', lang)));
         img.src = refinedUrl;
       });
       const canvas = document.createElement('canvas');
@@ -2039,13 +2039,15 @@ export function ImageEditorModal({
                 onClick={() => void handleSave()}
                 disabled={saving || !hasPreview}
               >
-                {saving ? '保存中…' : onApply ? '应用到这一帧' : '应用并存入素材库'}
+                {saving
+                  ? t('ie.save.saving', lang)
+                  : onApply
+                    ? t('ie.save.applyFrame', lang)
+                    : t('ie.save.applyLibrary', lang)}
               </button>
             </div>
             <p className="muted editor-tip">
-              {onApply
-                ? '修改只保留在内存里，回到帧列表后点「保存 N 帧」才会真正写入磁盘。'
-                : '保存为新的 PNG（带透明通道），原图不会被覆盖；结果会登记进 knowledge/index.json。'}
+              {onApply ? t('ie.save.hintFrame', lang) : t('ie.save.hintNew', lang)}
             </p>
           </aside>
         </div>

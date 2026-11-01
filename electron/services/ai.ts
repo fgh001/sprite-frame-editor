@@ -257,7 +257,9 @@ export async function fetchBalance(): Promise<BalanceInfo> {
     case 'moonshot':
       return fetchMoonshotBalance(ctx);
     default:
-      return unsupportedBalance(msg('err.ai.balanceUnsupportedProvider', { provider: preset.label }));
+      return unsupportedBalance(
+        msg('err.ai.balanceUnsupportedProvider', { provider: msg(preset.labelKey) }),
+      );
   }
 }
 
@@ -346,7 +348,7 @@ export async function suggestBackgroundColor(prompt: string): Promise<Background
   const heuristic = pickAutoBackground(prompt);
   const fallback: BackgroundSuggestion = {
     color: heuristic.color,
-    reason: heuristic.label,
+    reason: msg(heuristic.labelKey),
     source: 'heuristic',
   };
 

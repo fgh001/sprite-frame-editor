@@ -28,7 +28,9 @@ export type BalanceKind = 'deepseek' | 'openrouter' | 'moonshot' | 'none';
 
 export interface ProviderPreset {
   id: ProviderId;
-  label: string;
+  /** 显示名/说明的文案 key（三语，见 shared/err-i18n.ts） */
+  labelKey: string;
+  noteKey: string;
   baseUrl: string;
   /** 该服务商支持哪些能力槽位 */
   capabilities: Capability[];
@@ -36,19 +38,19 @@ export interface ProviderPreset {
   models: Partial<Record<Capability, string>>;
   balance: BalanceKind;
   requiresKey: boolean;
-  note: string;
 }
 
-export const CAPABILITY_LABELS: Record<Capability, string> = {
-  chat: '文本 / 推理',
-  image: '图像生成',
-  video: '视频生成',
+export const CAPABILITY_LABEL_KEYS: Record<Capability, string> = {
+  chat: 'cap.chat',
+  image: 'cap.image',
+  video: 'cap.video',
 };
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   {
     id: 'doubao',
-    label: '豆包 · 火山方舟（图片 / 视频 / 文本）',
+    labelKey: 'provider.doubao.label',
+    noteKey: 'provider.doubao.note',
     baseUrl: 'https://ark.cn-beijing.volces.com/api/v3',
     capabilities: ['chat', 'image', 'video'],
     models: {
@@ -58,99 +60,96 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
     },
     balance: 'none',
     requiresKey: true,
-    note:
-      '图片默认用 Seedream 5.0-flash：0.12 元/张（不分分辨率档位，约 15–20 秒出图，支持透明背景 / 图层拆分 / 图生图），比 5.0-pro（0.3 元/张）便宜 2.5 倍、快 6 倍；要极致画质可切到 doubao-seedream-5-0-pro-260628。视频用 Seedance 2.5（1.0 已下架）：480P/720P 70 元、1080P 77 元每百万 tokens（5 秒 480P ≈ 3.36 元），且官方要求账户余额 ≥ 200 元才能开通。返回的 URL 24 小时后失效，本应用会立刻下载存档。',
   },
   {
     id: 'deepseek',
-    label: 'DeepSeek 深度求索（文本）',
+    labelKey: 'provider.deepseek.label',
+    noteKey: 'provider.deepseek.note',
     baseUrl: 'https://api.deepseek.com/v1',
     capabilities: ['chat'],
     models: { chat: 'deepseek-chat', image: '', video: '' },
     balance: 'deepseek',
     requiresKey: true,
-    note:
-      '只能做文本 / 看图理解，不能生图。deepseek-chat 会路由到 deepseek-flash（输入支持图片，可直接喂素材库参考图），另有 deepseek-v4-pro。',
   },
   {
     id: 'openai',
-    label: 'OpenAI（文本 / 图像）',
+    labelKey: 'provider.openai.label',
+    noteKey: 'provider.openai.note',
     baseUrl: 'https://api.openai.com/v1',
     capabilities: ['chat', 'image'],
     models: { chat: 'gpt-4o-mini', image: 'gpt-image-1', video: '' },
     balance: 'none',
     requiresKey: true,
-    note: '图像走 Images API（gpt-image-1）。官方没有公开余额接口，额度到 platform.openai.com 查看。',
   },
   {
     id: 'siliconflow',
-    label: 'SiliconFlow 硅基流动（文本 / 图像）',
+    labelKey: 'provider.siliconflow.label',
+    noteKey: 'provider.siliconflow.note',
     baseUrl: 'https://api.siliconflow.cn/v1',
     capabilities: ['chat', 'image'],
     models: { chat: 'Qwen/Qwen2.5-7B-Instruct', image: 'black-forest-labs/FLUX.1-schnell', video: '' },
     balance: 'none',
     requiresKey: true,
-    note: '国内可充值，图像模型如 FLUX.1、Kolors；接口为 OpenAI 兼容 /images/generations。',
   },
   {
     id: 'zhipu',
-    label: '智谱 GLM（文本 / 图像）',
+    labelKey: 'provider.zhipu.label',
+    noteKey: 'provider.zhipu.note',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     capabilities: ['chat', 'image'],
     models: { chat: 'glm-4-flash', image: 'cogview-3-flash', video: '' },
     balance: 'none',
     requiresKey: true,
-    note: 'CogView 系列出图，接口为 OpenAI 兼容模式。',
   },
   {
     id: 'openrouter',
-    label: 'OpenRouter（文本）',
+    labelKey: 'provider.openrouter.label',
+    noteKey: 'provider.openrouter.note',
     baseUrl: 'https://openrouter.ai/api/v1',
     capabilities: ['chat'],
     models: { chat: 'openai/gpt-4o-mini', image: '', video: '' },
     balance: 'openrouter',
     requiresKey: true,
-    note: '聚合多家文本模型，支持查询 credit / 已用量。',
   },
   {
     id: 'moonshot',
-    label: 'Kimi（月之暗面，文本）',
+    labelKey: 'provider.moonshot.label',
+    noteKey: 'provider.moonshot.note',
     baseUrl: 'https://api.moonshot.cn/v1',
     capabilities: ['chat'],
     models: { chat: 'moonshot-v1-8k', image: '', video: '' },
     balance: 'moonshot',
     requiresKey: true,
-    note: '支持查询账户余额（含代金券 / 现金）。',
   },
   {
     id: 'qwen',
-    label: '通义千问（文本）',
+    labelKey: 'provider.qwen.label',
+    noteKey: 'provider.qwen.note',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     capabilities: ['chat'],
     models: { chat: 'qwen-plus', image: '', video: '' },
     balance: 'none',
     requiresKey: true,
-    note: '使用 compatible-mode 兼容接口；万相出图是另一套异步接口，暂未接入。',
   },
   {
     id: 'ollama',
-    label: 'Ollama（本地文本）',
+    labelKey: 'provider.ollama.label',
+    noteKey: 'provider.ollama.note',
     baseUrl: 'http://localhost:11434/v1',
     capabilities: ['chat'],
     models: { chat: 'llama3.2', image: '', video: '' },
     balance: 'none',
     requiresKey: false,
-    note: '本机运行，无需 API Key（需先启动 ollama serve）。',
   },
   {
     id: 'custom',
-    label: '自定义（OpenAI 兼容 / 中转站）',
+    labelKey: 'provider.custom.label',
+    noteKey: 'provider.custom.note',
     baseUrl: '',
     capabilities: ['chat', 'image', 'video'],
     models: { chat: '', image: '', video: '' },
     balance: 'none',
     requiresKey: true,
-    note: '填任意 OpenAI 兼容接口：文本走 /chat/completions、图像走 /images/generations。',
   },
 ];
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { BalanceInfo, ModelInfo, SaveSlotInput, SlotKey, SlotSettingsView, TestResult, UsageStats } from '@shared/ipc';
-import { CAPABILITY_LABELS, getProviderPreset, presetsFor, type ProviderId } from '@shared/providers';
+import { getProviderPreset, presetsFor, type ProviderId } from '@shared/providers';
 import { t, useLang } from '../i18n';
 
 const SLOTS: SlotKey[] = ['chat', 'image', 'video'];
@@ -42,7 +42,7 @@ interface ModelSettingsPageProps {
 
 export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettingsPageProps = {}): React.JSX.Element {
   const [lang] = useLang();
-  /** 槽位显示名走三语字典（CAPABILITY_LABELS 是写死的中文，只用于兜底） */
+  /** 槽位显示名走三语字典 */
   const slotLabel = (slot: SlotKey): string =>
     slot === 'chat'
       ? t('ms.slot.chat', lang)
@@ -255,7 +255,10 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
     applyView(result.data);
     setToast({
       kind: 'ok',
-      text: t('ms.msg.saved', lang, { provider: preset.label, path: result.data.configPath }),
+      text: t('ms.msg.saved', lang, {
+        provider: t(preset.labelKey, lang),
+        path: result.data.configPath,
+      }),
     });
     if (activeSlot === 'chat' && preset.balance !== 'none') void refreshBalance();
     return true;
@@ -280,7 +283,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
     if (preset.requiresKey && !activeKeyEntry) {
       setToast({
         kind: 'err',
-        text: t('ms.err.noKeyForList', lang, { provider: preset.label, requirement }),
+        text: t('ms.err.noKeyForList', lang, { provider: t(preset.labelKey, lang), requirement }),
       });
       return;
     }
@@ -324,7 +327,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
     applyView(cleared.data);
     setToast({
       kind: 'ok',
-      text: t('ms.api.clearOk', lang, { label: preset.label }),
+      text: t('ms.api.clearOk', lang, { label: t(preset.labelKey, lang) }),
     });
   };
 
@@ -413,7 +416,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
             >
               {presetsFor(activeSlot).map((option) => (
                 <option key={option.id} value={option.id}>
-                  {option.label}
+                  {t(option.labelKey, lang)}
                   {option.baseUrl ? ` · ${option.baseUrl}` : ''}
                 </option>
               ))}
@@ -436,7 +439,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
 
           <div className="field">
             <span className="field__label">
-              {t('ms.api.keyLabel', lang, { label: preset.label })}
+              {t('ms.api.keyLabel', lang, { label: t(preset.labelKey, lang) })}
               {activeKeyEntry ? null : (
                 <em className="field__saved field__saved--empty">{t('ms.api.notConfigured', lang)}</em>
               )}
@@ -515,7 +518,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                 >
                   {t('ms.api.reuse', lang, {
                     slot: slotLabel(copySourceSlot),
-                    provider: preset.label,
+                    provider: t(preset.labelKey, lang),
                   })}
                 </button>
               </div>

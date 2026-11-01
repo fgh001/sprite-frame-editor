@@ -178,7 +178,9 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
           <div className="studio-slot">
             {slot ? (
               <>
-                <span className="studio-slot__label">{preset?.label ?? slot.providerId}</span>
+                <span className="studio-slot__label">
+                  {preset ? t(preset.labelKey, lang) : slot.providerId}
+                </span>
                 <code>{slot.model || t('im.slot.noModel', lang)}</code>
                 <code className="muted">{slot.baseUrl}</code>
               </>
@@ -264,7 +266,7 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
                   }}
                 >
                   <span className="bg-chip__dot" style={{ background: option.color }} />
-                  {option.label}
+                  {t(option.labelKey, lang)}
                 </button>
               ))}
             </div>

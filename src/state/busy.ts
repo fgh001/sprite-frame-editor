@@ -1,3 +1,5 @@
+import { getLang, t } from '../i18n';
+
 /**
  * 全局任务状态（极简 store）。
  *
@@ -78,18 +80,18 @@ export function allProgress(): Record<string, number | null> {
  *   - 批量抠图是 rembg 多进程 CPU 密集，和生图/生视频同跑会互相拖慢
  *   - 同类型之间靠按钮 disabled 挡住，不用在这里管
  */
-const CONFLICT: Record<BusyKey, { key: BusyKey; label: string; reason: string }[]> = {
+const CONFLICT: Record<BusyKey, { key: BusyKey; labelKey: string; reasonKey: string }[]> = {
   'image-studio': [
-    { key: 'video-studio', label: '循环视频', reason: '同一个豆包 Key，并发容易撞限流' },
-    { key: 'matte-studio', label: '批量抠图', reason: '抠图是 CPU 密集型，两边都会变慢' },
+    { key: 'video-studio', labelKey: 'busy.label.videoStudio', reasonKey: 'busy.reason.key' },
+    { key: 'matte-studio', labelKey: 'busy.label.matteStudio', reasonKey: 'busy.reason.matteCpu' },
   ],
   'video-studio': [
-    { key: 'image-studio', label: '图像生成', reason: '同一个豆包 Key，并发容易撞限流' },
-    { key: 'matte-studio', label: '批量抠图', reason: '抠图是 CPU 密集型，两边都会变慢' },
+    { key: 'image-studio', labelKey: 'busy.label.imageStudio', reasonKey: 'busy.reason.key' },
+    { key: 'matte-studio', labelKey: 'busy.label.matteStudio', reasonKey: 'busy.reason.matteCpu' },
   ],
   'matte-studio': [
-    { key: 'image-studio', label: '图像生成', reason: '抠图占满 CPU，生图会明显变慢' },
-    { key: 'video-studio', label: '循环视频', reason: '抠图占满 CPU，视频生成会明显变慢' },
+    { key: 'image-studio', labelKey: 'busy.label.imageStudio', reasonKey: 'busy.reason.matteImage' },
+    { key: 'video-studio', labelKey: 'busy.label.videoStudio', reasonKey: 'busy.reason.matteVideo' },
   ],
 };
 
@@ -102,8 +104,13 @@ const CONFLICT: Record<BusyKey, { key: BusyKey; label: string; reason: string }[
 export function tryStart(key: BusyKey, label: string): boolean {
   const clashes = CONFLICT[key].filter((item) => running.has(item.key));
   if (clashes.length > 0) {
-    const detail = clashes.map((item) => `· ${item.label}：${item.reason}`).join('\n');
-    const ok = window.confirm(`已有任务在进行：\n\n${detail}\n\n还要同时开始「${label}」吗？`);
+    const lang = getLang();
+    const detail = clashes
+      .map((item) =>
+        t('busy.confirm.detail', lang, { label: t(item.labelKey, lang), reason: t(item.reasonKey, lang) }),
+      )
+      .join('\n');
+    const ok = window.confirm(t('busy.confirm.body', lang, { detail, label }));
     if (!ok) return false;
   }
   setBusy(key, true);

@@ -14,6 +14,7 @@
  *   - 缺 key 时回落到简体中文，再回落到 key 本身，绝不显示空白
  */
 import { useEffect, useState } from 'react';
+import { MAIN_DICTS } from '@shared/err-i18n';
 
 export type Lang = 'zh-CN' | 'zh-TW' | 'en';
 
@@ -39,6 +40,15 @@ const zhCN: Dict = {
   'busy.matte.body':
     '抠图会占满 CPU，其他页面会明显卡顿、预览加载也慢。请等它跑完，或到「批量抠图」页点「强制结束」之后再操作。',
   'busy.matte.back': '回到批量抠图',
+  'busy.label.imageStudio': '图像生成',
+  'busy.label.videoStudio': '循环视频',
+  'busy.label.matteStudio': '批量抠图',
+  'busy.reason.key': '同一个豆包 Key，并发容易撞限流',
+  'busy.reason.matteCpu': '抠图是 CPU 密集型，两边都会变慢',
+  'busy.reason.matteImage': '抠图占满 CPU，生图会明显变慢',
+  'busy.reason.matteVideo': '抠图占满 CPU，视频生成会明显变慢',
+  'busy.confirm.detail': '· {label}：{reason}',
+  'busy.confirm.body': '已有任务在进行：\n\n{detail}\n\n还要同时开始「{label}」吗？',
   'nav.group.workspace': '工作台',
   'nav.group.system': '系统',
   'nav.pipeline': '生成流水线',
@@ -346,6 +356,16 @@ const zhCN: Dict = {
   'vd.optimize.failed': '优化失败：{error}',
   'vd.optimize.done': '已回填优化后的提示词，确认满意再点「生成循环视频」',
   'vd.duration': '时长',
+  'vd.defaultPrompt': '角色轻微呼吸，衣摆与发丝自然摆动，镜头固定，动作首尾衔接无缝循环',
+  'vd.res.fast': '480p（最快）',
+  'vd.res.recommended': '720p（推荐）',
+  'vd.res.slow': '1080p（最慢）',
+  'vd.err.noModel2':
+    '还没有选择视频模型：请到「模型设置 → 视频生成」拉取模型列表并选一个（如 doubao-seedance-2-5-260628），再回来生成',
+  'vd.err.slotNotReady':
+    '视频槽位还没配置好（可能已停用或没填 API Key）：请到「模型设置 → 视频生成」检查',
+  'vd.err.noImage2': '先在上面选一张图片',
+  'vd.preparing': '准备中…',
   'vd.seconds': '{count} 秒',
   'vd.resolution': '分辨率',
   'vd.btn.generate': '生成循环视频',
@@ -746,6 +766,15 @@ const zhCN: Dict = {
   'ie.check.green': '绿',
   'ie.check.greenTitle': '绿幕背景：检查紫色光圈（与紫色对比最强）',
   'ie.decoding': '正在解码图片…',
+  'ie.err.canvasCtx': '无法创建画布上下文',
+  'ie.err.imageDecode': '图片解码失败',
+  'ie.err.decodeFailed': '解码失败',
+  'ie.err.aiDecode': 'AI 结果解码失败',
+  'ie.save.saving': '保存中…',
+  'ie.save.applyFrame': '应用到这一帧',
+  'ie.save.applyLibrary': '应用并存入素材库',
+  'ie.save.hintFrame': '修改只保留在内存里，回到帧列表后点「保存 N 帧」才会真正写入磁盘。',
+  'ie.save.hintNew': '保存为新的 PNG（带透明通道），原图不会被覆盖；结果会登记进 knowledge/index.json。',
   'ie.magnifier.move': '移动鼠标查看像素',
   'ie.tab.local': '本地模型抠图',
   'ie.tab.classic': '传统抠图',
@@ -860,6 +889,15 @@ const zhTW: Dict = {
   'busy.matte.body':
     '去背會佔滿 CPU，其他頁面會明顯卡頓、預覽載入也慢。請等它跑完，或到「批次去背」頁點「強制結束」之後再操作。',
   'busy.matte.back': '回到批次去背',
+  'busy.label.imageStudio': '影像生成',
+  'busy.label.videoStudio': '循環影片',
+  'busy.label.matteStudio': '批次去背',
+  'busy.reason.key': '同一個豆包 Key，同時執行容易撞限流',
+  'busy.reason.matteCpu': '去背是 CPU 密集型，兩邊都會變慢',
+  'busy.reason.matteImage': '去背佔滿 CPU，生圖會明顯變慢',
+  'busy.reason.matteVideo': '去背佔滿 CPU，影片生成會明顯變慢',
+  'busy.confirm.detail': '· {label}：{reason}',
+  'busy.confirm.body': '已有任務在進行：\n\n{detail}\n\n還要同時開始「{label}」嗎？',
   'nav.group.workspace': '工作台',
   'nav.group.system': '系統',
   'nav.pipeline': '生成流水線',
@@ -1167,6 +1205,16 @@ const zhTW: Dict = {
   'vd.optimize.failed': '優化失敗：{error}',
   'vd.optimize.done': '已回填優化後的提示詞，確認滿意再按「生成循環影片」',
   'vd.duration': '時長',
+  'vd.defaultPrompt': '角色輕微呼吸，衣襬與髮絲自然擺動，鏡頭固定，動作首尾銜接無縫循環',
+  'vd.res.fast': '480p（最快）',
+  'vd.res.recommended': '720p（建議）',
+  'vd.res.slow': '1080p（最慢）',
+  'vd.err.noModel2':
+    '還沒選擇影片模型：請到「模型設定 → 影片生成」拉取模型列表並選一個（如 doubao-seedance-2-5-260628），再回來生成',
+  'vd.err.slotNotReady':
+    '影片欄位還沒設定好（可能已停用或沒填 API Key）：請到「模型設定 → 影片生成」檢查',
+  'vd.err.noImage2': '先在上面選一張圖片',
+  'vd.preparing': '準備中…',
   'vd.seconds': '{count} 秒',
   'vd.resolution': '解析度',
   'vd.btn.generate': '生成循環影片',
@@ -1566,6 +1614,15 @@ const zhTW: Dict = {
   'ie.check.green': '綠',
   'ie.check.greenTitle': '綠幕背景：檢查紫色光圈（與紫色對比最強）',
   'ie.decoding': '正在解碼圖片…',
+  'ie.err.canvasCtx': '無法建立畫布環境',
+  'ie.err.imageDecode': '圖片解碼失敗',
+  'ie.err.decodeFailed': '解碼失敗',
+  'ie.err.aiDecode': 'AI 結果解碼失敗',
+  'ie.save.saving': '儲存中…',
+  'ie.save.applyFrame': '套用到這一格',
+  'ie.save.applyLibrary': '套用並存入素材庫',
+  'ie.save.hintFrame': '修改只保留在記憶體裡，回到影格列表後按「儲存 N 格」才會真正寫入磁碟。',
+  'ie.save.hintNew': '儲存為新的 PNG（含透明通道），原圖不會被覆蓋；結果會登記進 knowledge/index.json。',
   'ie.magnifier.move': '移動滑鼠查看像素',
   'ie.tab.local': '本機模型去背',
   'ie.tab.classic': '傳統去背',
@@ -1681,6 +1738,16 @@ const en: Dict = {
   'busy.matte.body':
     'Matting saturates the CPU, so other pages will stutter and previews load slowly. Wait for it to finish, or open the Batch matting page and press “Force stop” first.',
   'busy.matte.back': 'Back to batch matting',
+  'busy.label.imageStudio': 'Image generation',
+  'busy.label.videoStudio': 'Looping video',
+  'busy.label.matteStudio': 'Batch matting',
+  'busy.reason.key': 'Both use the same Doubao key, so running them together hits rate limits',
+  'busy.reason.matteCpu': 'Matting is CPU-bound — both will slow down',
+  'busy.reason.matteImage': 'Matting saturates the CPU, so image generation slows down noticeably',
+  'busy.reason.matteVideo': 'Matting saturates the CPU, so video generation slows down noticeably',
+  'busy.confirm.detail': '· {label}: {reason}',
+  'busy.confirm.body':
+    'Another task is already running:\n\n{detail}\n\nStart “{label}” at the same time anyway?',
   'nav.group.workspace': 'Workspace',
   'nav.group.system': 'System',
   'nav.pipeline': 'Pipeline',
@@ -2001,6 +2068,17 @@ const en: Dict = {
   'vd.optimize.done':
     'The optimised prompt is back in the box — review it, then press “Generate loop video”.',
   'vd.duration': 'Duration',
+  'vd.defaultPrompt':
+    'The character breathes subtly, cloth and hair sway naturally, camera locked off, motion loops seamlessly from first frame to last',
+  'vd.res.fast': '480p (fastest)',
+  'vd.res.recommended': '720p (recommended)',
+  'vd.res.slow': '1080p (slowest)',
+  'vd.err.noModel2':
+    'No video model selected yet: go to Model settings → Video generation, fetch the model list and pick one (e.g. doubao-seedance-2-5-260628), then come back.',
+  'vd.err.slotNotReady':
+    'The video slot is not configured (it may be disabled or missing an API key). Check Model settings → Video generation.',
+  'vd.err.noImage2': 'Pick an image above first',
+  'vd.preparing': 'Preparing…',
   'vd.seconds': '{count}s',
   'vd.resolution': 'Resolution',
   'vd.btn.generate': 'Generate loop video',
@@ -2417,6 +2495,17 @@ const en: Dict = {
   'ie.check.green': 'Green',
   'ie.check.greenTitle': 'Green background: spot purple halos (highest contrast with purple)',
   'ie.decoding': 'Decoding image…',
+  'ie.err.canvasCtx': 'Could not create a canvas context',
+  'ie.err.imageDecode': 'Could not decode the image',
+  'ie.err.decodeFailed': 'Decoding failed',
+  'ie.err.aiDecode': 'Could not decode the AI result',
+  'ie.save.saving': 'Saving…',
+  'ie.save.applyFrame': 'Apply to this frame',
+  'ie.save.applyLibrary': 'Apply and add to library',
+  'ie.save.hintFrame':
+    'Changes stay in memory only — press “Save N frames” on the frame list to actually write them to disk.',
+  'ie.save.hintNew':
+    'Saves as a new PNG with an alpha channel; the original is not overwritten. The result is recorded in knowledge/index.json.',
   'ie.magnifier.move': 'Move the mouse to inspect pixels',
   'ie.tab.local': 'Local model matting',
   'ie.tab.classic': 'Classic matting',
@@ -2546,9 +2635,10 @@ export function setLang(next: Lang): void {
   for (const fn of listeners) fn();
 }
 
-/** 取文案；缺 key 时回落简中，再不行直接把 key 显示出来 */
+/** 取文案；本字典缺 key 时查主进程那份（服务商说明等共用），再回落简中，最后显示 key */
 export function t(key: string, lang: Lang = current, vars?: Record<string, string>): string {
-  const text = DICTS[lang]?.[key] ?? zhCN[key] ?? key;
+  const text =
+    DICTS[lang]?.[key] ?? MAIN_DICTS[lang]?.[key] ?? zhCN[key] ?? MAIN_DICTS['zh-CN'][key] ?? key;
   if (!vars) return text;
   return text.replace(/\{(\w+)\}/g, (match, name: string) => vars[name] ?? match);
 }

@@ -8,18 +8,18 @@ import type {
 import { getProviderPreset } from '@shared/providers';
 import { setBusy as markBusy, tryStart } from '../state/busy';
 import { notifyDataChanged, useDataRefresh } from '../state/refresh';
-import { t, useLang } from '../i18n';
+import { getLang, t, useLang } from '../i18n';
 
 interface VideoStudioPageProps {
   onOpenModelSettings: () => void;
 }
 
-const DEFAULT_PROMPT = '角色轻微呼吸，衣摆与发丝自然摆动，镜头固定，动作首尾衔接无缝循环';
+const DEFAULT_PROMPT_KEY = 'vd.defaultPrompt';
 const DURATIONS = [2, 3, 4, 5, 6, 8, 10, 12];
-const RESOLUTIONS: { value: '480p' | '720p' | '1080p'; label: string }[] = [
-  { value: '480p', label: '480p（最快）' },
-  { value: '720p', label: '720p（推荐）' },
-  { value: '1080p', label: '1080p（最慢）' },
+const RESOLUTIONS: { value: '480p' | '720p' | '1080p'; labelKey: string }[] = [
+  { value: '480p', labelKey: 'vd.res.fast' },
+  { value: '720p', labelKey: 'vd.res.recommended' },
+  { value: '1080p', labelKey: 'vd.res.slow' },
 ];
 
 function formatBytes(bytes: number): string {
@@ -34,7 +34,7 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
   const [selected, setSelected] = useState<KnowledgeView | null>(null);
   const [loadingImages, setLoadingImages] = useState(false);
 
-  const [prompt, setPrompt] = useState(DEFAULT_PROMPT);
+  const [prompt, setPrompt] = useState(() => t(DEFAULT_PROMPT_KEY, getLang()));
   const [duration, setDuration] = useState(5);
   const [resolution, setResolution] = useState<'480p' | '720p' | '1080p'>('720p');
 
@@ -90,22 +90,22 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
 
   const handleGenerate = async (): Promise<void> => {
     if (!slot?.model) {
-      setError('还没有选择视频模型：请到「模型设置 → 视频生成」拉取模型列表并选一个（如 doubao-seedance-2-5-260628），再回来生成');
+      setError(t('vd.err.noModel2', lang));
       return;
     }
     if (!ready) {
-      setError('视频槽位还没配置好（可能已停用或没填 API Key）：请到「模型设置 → 视频生成」检查');
+      setError(t('vd.err.slotNotReady', lang));
       return;
     }
     if (!selected) {
-      setError('先在上面选一张图片');
+      setError(t('vd.err.noImage2', lang));
       return;
     }
-    if (!tryStart('video-studio', '循环视频')) return;
+    if (!tryStart('video-studio', t('busy.label.videoStudio', lang))) return;
     setBusy(true);
     setError(null);
     setResult(null);
-    setProgress({ stage: 'submitting', message: '准备中…' });
+    setProgress({ stage: 'submitting', message: t('vd.preparing', lang) });
 
     const res = await window.skeletonElf.video.generateLoop({
       imageAbsPath: selected.absPath,
@@ -171,7 +171,9 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
           <div className="studio-slot">
             {slot ? (
               <>
-                <span className="studio-slot__label">{preset?.label ?? slot.providerId}</span>
+                <span className="studio-slot__label">
+                  {preset ? t(preset.labelKey, lang) : slot.providerId}
+                </span>
                 <code>{slot.model || t('vd.slot.noModel', lang)}</code>
               </>
             ) : (
@@ -329,7 +331,7 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
               >
                 {RESOLUTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
-                    {option.label}
+                    {t(option.labelKey, lang)}
                   </option>
                 ))}
               </select>
