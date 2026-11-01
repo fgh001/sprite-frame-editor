@@ -20,6 +20,7 @@
     "icon": "node scripts/make-ico.mjs",
     "clean:win": "node scripts/clean-dist.mjs windows-x64",
     "prune:models": "node scripts/prune-models.mjs windows-x64",
+    "zip:release": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/zip-release.ps1 windows-x64",
     "dist:win": "npm run icon && npm run build && npm run clean:win && electron-builder --win --x64 --config.directories.output=build/windows-x64 && node scripts/package-dir.mjs windows-x64 && node scripts/prune-models.mjs windows-x64",
     "dist:win:only": "npm run icon && npm run clean:win && electron-builder --win --x64 --config.directories.output=build/windows-x64 && node scripts/package-dir.mjs windows-x64 && node scripts/prune-models.mjs windows-x64",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json"
