@@ -1663,7 +1663,10 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
           {/* 抽帧诊断：卡住时把这段截图发出来就能定位 */}
           {diag.length > 0 ? (
             <details className="frame-diag" open={busy}>
-              <summary>抽帧诊断（{diag.length} 条）</summary>
+              <summary>
+                {t('fs.diag.title', lang)}
+                {t('fs.diag.count', lang, { count: String(diag.length) })}
+              </summary>
               <pre>{diag.join('\n')}</pre>
             </details>
           ) : null}
