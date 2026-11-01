@@ -21,6 +21,7 @@ import {
   renameFrameProject,
   saveFrameProject,
   writeFrameFile,
+  writeOutputFrameFile,
 } from '../core/frames';
 
 function toError(err: unknown): IpcErr {
@@ -133,6 +134,22 @@ export function registerFramesIpc(): void {
         if (typeof fileName !== 'string' || !fileName) throw new Error(msg('err.frames.badFileName'));
         if (typeof png !== 'string' || !png) throw new Error(msg('err.frames.badData'));
         writeFrameFile(id, fileName, png);
+        return { ok: true, data: null };
+      } catch (err) {
+        return toError(err);
+      }
+    },
+  );
+
+  /** 同上，但写的是抠图结果（frames/outputs/<目录名>） */
+  ipcMain.handle(
+    'frames:writeOutputFrame',
+    async (_event, dirName: unknown, fileName: unknown, png: unknown): Promise<IpcResult<null>> => {
+      try {
+        if (typeof dirName !== 'string' || !dirName) throw new Error(msg('err.frames.badId'));
+        if (typeof fileName !== 'string' || !fileName) throw new Error(msg('err.frames.badFileName'));
+        if (typeof png !== 'string' || !png) throw new Error(msg('err.frames.badData'));
+        writeOutputFrameFile(dirName, fileName, png);
         return { ok: true, data: null };
       } catch (err) {
         return toError(err);

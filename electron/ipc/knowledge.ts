@@ -402,40 +402,55 @@ function toError(err: unknown): IpcErr {
   return { ok: false, error: err instanceof Error ? err.message : String(err) };
 }
 
+/** 攒一小会儿再广播：复制一个文件夹会连着来十几个 fs 事件，没必要每个都刷 UI */
+let broadcastTimer: NodeJS.Timeout | null = null;
+
 /**
- * 监听素材容器目录（data/knowledge/files/images、files/videos）。
+ * 通知渲染层「磁盘变了，重新读盘」。
  *
- * 用户会在资源管理器里直接往这两个目录拷文件、删文件、改名 —— 界面必须跟着变，
- * 不能等他手动点「刷新」。这里用 fs.watch 监听，200ms 防抖后广播给所有窗口；
- * 渲染层收到后走统一的数据刷新事件重新读盘。
+ * 两种触发来源：
+ *   1. fs.watch 事件（平时的实时刷新）
+ *   2. 窗口重新获得焦点（像游戏引擎那样：切回窗口时无条件补一次全量检查，
+ *      兜住 fs.watch 在个别情况下漏掉的改动）
+ */
+export function notifyMediaChanged(): void {
+  if (broadcastTimer) clearTimeout(broadcastTimer);
+  broadcastTimer = setTimeout(() => {
+    broadcastTimer = null;
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) win.webContents.send('kb:mediaChanged');
+    }
+  }, 200);
+}
+
+/**
+ * 监听所有「素材容器」目录，用户直接在资源管理器里增删改名时界面必须跟着变。
+ *
+ * - data/knowledge/files（递归）  —— 素材库图片 files/images、视频 files/videos
+ * - data/frames（递归）           —— 帧集合 sources/<集合>/、
+ *                                    抠图结果 outputs/<目录名>/
+ *
+ * 只要用户在界面上能「打开目录」，这个目录就必须被监听：所有素材都以磁盘为准，
+ * 界面只是它的镜像。200ms 防抖后广播 kb:mediaChanged，渲染层统一重新读盘。
  */
 export function startMediaWatcher(): void {
   const dirs = getDataDirs();
-  const targets = [dirs.knowledgeImages, dirs.knowledgeVideos];
+  // 递归监听：素材分布在各自子目录里（images/videos、sources/outputs）
+  const treeTargets = [dirs.knowledgeFiles, dirs.frames];
 
-  let timer: NodeJS.Timeout | null = null;
-  const broadcast = (): void => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(() => {
-      timer = null;
-      for (const win of BrowserWindow.getAllWindows()) {
-        if (!win.isDestroyed()) win.webContents.send('kb:mediaChanged');
-      }
-    }, 200);
-  };
-
-  for (const dir of targets) {
+  const watch = (dir: string, recursive: boolean): void => {
     try {
       fs.mkdirSync(dir, { recursive: true });
-      // recursive: false —— 这两个目录是平铺的，不看子目录，开销最小
-      const watcher = fs.watch(dir, { persistent: false }, broadcast);
+      const watcher = fs.watch(dir, { persistent: false, recursive }, notifyMediaChanged);
       watcher.on('error', () => {
         /* 目录被删或权限变化时静默忽略，用户重开应用会重新监听 */
       });
     } catch {
-      /* 单个目录监听失败不影响另一个 */
+      /* 单个目录监听失败不影响其它目录 */
     }
-  }
+  };
+
+  for (const dir of treeTargets) watch(dir, true);
 }
 
 export function registerKnowledgeIpc(): void {

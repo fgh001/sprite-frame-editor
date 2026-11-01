@@ -390,14 +390,17 @@ export interface FrameProjectMeta {
 }
 
 /** 批量抠图的输出目录（和原始帧分开存，方便对比和定位） */
-export interface FrameProjectOutput {  /** matte = 模型抠图；key = 传统抠图 */
+export interface FrameProjectOutput {
+  /** matte = 模型抠图；key = 传统抠图 */
   kind: 'matte' | 'key';
   /** 目录名，例如 walk-matte */
   name: string;
   /** 绝对路径 */
   absPath: string;
   frameCount: number;
-  /** 前几帧的预览地址（kbmedia://frame/walk-matte/frame_000.png），用于列表里显示缩略图 */
+  /** 全部帧的文件名（与 previewUrls 一一对应，编辑某一帧时用它定位） */
+  frameFileNames: string[];
+  /** 全部帧的预览地址（kbmedia://output/<目录名>/<文件名>?v=<mtime>） */
   previewUrls: string[];
 }
 
@@ -423,6 +426,8 @@ export interface FrameOutputView {
   /** 绝对路径 */
   absPath: string;
   frameCount: number;
+  /** 全部帧的文件名（与 previewUrls 一一对应，编辑某一帧时用它定位） */
+  frameFileNames: string[];
   /** 全部帧的预览地址（kbmedia://output/<目录名>/<文件名>） */
   previewUrls: string[];
   /** 源集合名（去掉 -matte / -key 后缀），源集合可能已被删除 */
@@ -642,6 +647,11 @@ export interface SkeletonElfApi {
      * 只允许写 data/frames/sources/<集合>/frame_XXX.png，不会碰其他位置。
      */
     writeFrame(id: string, fileName: string, pngBase64: string): Promise<IpcResult<null>>;
+    /**
+     * 同上，但写的是抠图结果（data/frames/outputs/<目录名>）。
+     * 目录名形如 walk-matte / walk-key。
+     */
+    writeOutputFrame(dirName: string, fileName: string, pngBase64: string): Promise<IpcResult<null>>;
     /** 在资源管理器中打开帧动画项目目录 */
     openDir(id?: string): Promise<IpcResult<null>>;
   };

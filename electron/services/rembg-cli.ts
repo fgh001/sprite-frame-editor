@@ -5,6 +5,7 @@ import path from 'node:path';
 import { getDataDirs } from '../core/paths';
 // 这个文件里有局部变量叫 msg / text（rembg 的 JSON 输出行、原始行），所以取个不会撞的别名
 import { msg as t9n } from '../core/msg';
+import { writeFrameOutputMeta } from '../core/frames';
 
 /**
  * 通过便携 Python 调用**官方 rembg** 做抠图。
@@ -325,9 +326,10 @@ export async function removeBackgroundBatch(
   fs.mkdirSync(outDir, { recursive: true });
   /* 清掉上一轮的输出帧。源集合被裁短后重新抠图，旧的多余帧会留在目录里，
      导致「显示抠了 2 帧，目录里却有 8 个文件」这种对不上的情况。
-     只删 frame_*.png/jpg，别的东西（用户自己放的）不动。 */
+     删掉目录里所有图片（不管叫什么名），非图片文件（用户自己放的）不动。 */
+  const imageExts = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp']);
   for (const entry of fs.readdirSync(outDir)) {
-    if (!/^frame_\d+\.(png|jpe?g)$/i.test(entry)) continue;
+    if (!imageExts.has(path.extname(entry).toLowerCase())) continue;
     try {
       fs.unlinkSync(path.join(outDir, entry));
     } catch {
@@ -430,6 +432,15 @@ export async function removeBackgroundBatch(
       const tail = stderr.trim().split('\n').slice(-6).join('\n');
       reject(new Error(tail || t9n('err.rembg.batchExitCode', { code: String(code) })));
     });
+  });
+
+  /* 把「这是模型抠图、源集合叫什么、用的哪个模型」写进目录里的 meta.json。
+     之后用户随便改 outputs 下的目录名，界面也能读出正确类型和来源。 */
+  writeFrameOutputMeta(outDir, {
+    kind: 'matte',
+    sourceName: path.basename(inDir),
+    createdAt: new Date().toISOString(),
+    model: options.model,
   });
 
   return { total: result.total, elapsedMs: Date.now() - started, errors };

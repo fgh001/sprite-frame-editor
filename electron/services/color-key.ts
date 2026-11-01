@@ -3,6 +3,7 @@ import path from 'node:path';
 import { nativeImage } from 'electron';
 import { getDataDirs } from '../core/paths';
 import { msg } from '../core/msg';
+import { listFrameFiles, writeFrameOutputMeta } from '../core/frames';
 
 /**
  * 批量传统抠图（颜色键控）。
@@ -188,10 +189,8 @@ export function keyOutDirectory(inDir: string, options: BatchKeyOutOptions): Bat
   const outDir = path.join(getDataDirs().frameOutputs, `${path.basename(inDir)}-key`);
   fs.mkdirSync(outDir, { recursive: true });
 
-  const files = fs
-    .readdirSync(inDir)
-    .filter((name) => /^frame_\d+\.png$/i.test(name))
-    .sort();
+  // 动态读源集合里的图片（不看命名），用户在文件夹里放了什么就处理什么
+  const files = listFrameFiles(inDir);
 
   const skipped: string[] = [];
   let done = 0;
@@ -205,6 +204,14 @@ export function keyOutDirectory(inDir: string, options: BatchKeyOutOptions): Bat
       skipped.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+
+  /* 把「这是传统抠图、源集合叫什么」写进目录里的 meta.json，
+     之后用户随便改目录名，界面也读得出正确类型和来源。 */
+  writeFrameOutputMeta(outDir, {
+    kind: 'key',
+    sourceName: path.basename(inDir),
+    createdAt: new Date().toISOString(),
+  });
 
   return { total: done, elapsedMs: Date.now() - started, skipped, outDir };
 }

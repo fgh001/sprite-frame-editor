@@ -11,6 +11,7 @@ import { registerFilesIpc } from './ipc/files';
 import { registerFramesIpc } from './ipc/frames';
 import {
   migrateThumbnailsToPng,
+  notifyMediaChanged,
   registerKnowledgeIpc,
   registerKnowledgeProtocol,
   registerKnowledgeScheme,
@@ -54,6 +55,13 @@ function createMainWindow(): void {
   mainWindow.once('ready-to-show', () => mainWindow?.show());
   mainWindow.on('closed', () => {
     mainWindow = null;
+  });
+
+  /* 像游戏引擎那样：从资源管理器切回窗口时无条件补一次磁盘检查。
+     fs.watch 平时够用，但偶尔会漏事件（网络盘、大量文件同时变动、
+     监听被系统回收），焦点回来时重新读一遍盘是最稳的兜底。 */
+  mainWindow.on('focus', () => {
+    notifyMediaChanged();
   });
 
   // 界面里的外链交给系统浏览器；只放行 http(s)，其余一律拒绝

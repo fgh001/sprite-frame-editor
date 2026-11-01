@@ -13,6 +13,14 @@ import { t, useLang } from '../i18n';
  */
 type Filter = 'all' | 'image' | 'video' | 'frames' | 'matte';
 
+/**
+ * 「编辑帧」的目标：抽帧集合（sources）或抠图结果（outputs）。
+ * 两者帧都放在磁盘上，但目录不同，写回时要走不同的 IPC。
+ */
+type FrameEditTarget =
+  | { scope: 'source'; title: string; id: string; absPath: string; frameUrls: string[]; frameFileNames: string[] }
+  | { scope: 'output'; title: string; dirName: string; absPath: string; frameUrls: string[]; frameFileNames: string[] };
+
 interface KnowledgePageProps {
   onOpenDataDir: () => void;
 }
@@ -38,6 +46,8 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** 选中的帧集合（素材/视频与帧集合互斥选中，避免右边详情残留上一项） */
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
+  /** 选中的抠图帧动画（存目录名）；三种选中互斥 */
+  const [selectedOutputName, setSelectedOutputName] = useState<string | null>(null);
 
   /** 文件名输入框（改名用，和 fileName 同步） */
   const [nameInput, setNameInput] = useState('');
@@ -51,12 +61,12 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
   const [frameOutputs, setFrameOutputs] = useState<FrameOutputView[]>([]);
   /** 正在播放预览的帧集合（null = 没打开播放窗口） */
   const [preview, setPreview] = useState<{ title: string; frameUrls: string[]; fps: number } | null>(null);
-  /** 正在挑帧编辑的集合（null = 没打开帧选择弹窗） */
-  const [frameEditProject, setFrameEditProject] = useState<FrameProjectView | null>(null);
-  /** 从集合里挑出来、正在编辑器里改的那一帧 */
+  /** 正在挑帧编辑的目标（帧集合或抠图结果，null = 没打开帧选择弹窗） */
+  const [frameEditTarget, setFrameEditTarget] = useState<FrameEditTarget | null>(null);
+  /** 从目标里挑出来、正在编辑器里改的那一帧 */
   const [editingFrame, setEditingFrame] = useState<{
     image: EditableImage;
-    projectId: string;
+    target: FrameEditTarget;
     fileName: string;
   } | null>(null);
   /** 正在改名的帧集合 / 抠图结果（存 project.id 或 output.name，null = 没在改名） */
@@ -97,6 +107,10 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
   const selectedFrameProject = useMemo(
     () => frameProjects.find((project) => project.id === selectedFrameId) ?? null,
     [frameProjects, selectedFrameId],
+  );
+  const selectedOutput = useMemo(
+    () => frameOutputs.find((output) => output.name === selectedOutputName) ?? null,
+    [frameOutputs, selectedOutputName],
   );
 
   useEffect(() => {
@@ -256,22 +270,25 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
     setEditing(res.data);
   };
 
-  /** 打开帧集合里的某一帧：读成 dataURL 交给图片编辑器 */
-  const openFrameEditor = async (project: FrameProjectView, fileName: string): Promise<void> => {
-    const res = await window.skeletonElf.files.readImage(`${project.absPath}/${fileName}`);
+  /** 打开某一帧：读成 dataURL 交给图片编辑器（抽帧集合 / 抠图结果通用） */
+  const openFrameEditor = async (target: FrameEditTarget, fileName: string): Promise<void> => {
+    const res = await window.skeletonElf.files.readImage(`${target.absPath}/${fileName}`);
     if (!res.ok) {
       setMessage({ kind: 'err', text: res.error });
       return;
     }
-    setFrameEditProject(null);
-    setEditingFrame({ image: res.data, projectId: project.id, fileName });
+    setFrameEditTarget(null);
+    setEditingFrame({ image: res.data, target, fileName });
   };
 
   /** 编辑器里点「应用到这一帧」：把 PNG 写回磁盘上的那一帧 */
   const handleFrameApply = async (pngDataUrl: string): Promise<void> => {
     if (!editingFrame) return;
-    const { projectId, fileName } = editingFrame;
-    const res = await window.skeletonElf.frames.writeFrame(projectId, fileName, pngDataUrl);
+    const { target, fileName } = editingFrame;
+    const res =
+      target.scope === 'source'
+        ? await window.skeletonElf.frames.writeFrame(target.id, fileName, pngDataUrl)
+        : await window.skeletonElf.frames.writeOutputFrame(target.dirName, fileName, pngDataUrl);
     setEditingFrame(null);
     if (!res.ok) {
       setMessage({ kind: 'err', text: res.error });
@@ -361,7 +378,17 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
               <button type="button" className="btn btn--primary" onClick={() => void handleImport()}>
                 {t('kb.import', lang)}
               </button>
-              <button type="button" className="btn btn--ghost" onClick={() => void load()} disabled={loading}>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                title={t('kb.refresh.hint', lang)}
+                onClick={() => {
+                  void load();
+                  // 手动刷新也通知其它页面（帧动画 / 批量抠图），避免各自读到旧状态
+                  notifyDataChanged();
+                }}
+                disabled={loading}
+              >
                 {loading ? t('kb.refreshing', lang) : t('kb.refresh', lang)}
               </button>
               <button type="button" className="btn btn--ghost" onClick={onOpenDataDir}>
@@ -387,6 +414,7 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
                     onClick={() => {
                       setSelectedFrameId(project.id);
                       setSelectedId(null);
+                      setSelectedOutputName(null);
                     }}
                   >
                     <div className="kb-frame-thumbs">
@@ -476,7 +504,16 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
                               type="button"
                               className="btn btn--ghost"
                               title={t('kb.title.editFrames', lang)}
-                              onClick={() => setFrameEditProject(project)}
+                              onClick={() =>
+                                setFrameEditTarget({
+                                  scope: 'source',
+                                  title: project.name,
+                                  id: project.id,
+                                  absPath: project.absPath,
+                                  frameUrls: project.frameUrls,
+                                  frameFileNames: project.frameFileNames,
+                                })
+                              }
                             >
                               {t('kb.btn.editFrames', lang)}
                             </button>
@@ -521,7 +558,15 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
             ) : (
               <div className="studio-grid">
                 {visibleOutputs.map((output) => (
-                  <figure key={output.name} className="studio-item kb-card">
+                  <figure
+                    key={output.name}
+                    className={`studio-item kb-card${selectedOutputName === output.name ? ' is-active' : ''}`}
+                    onClick={() => {
+                      setSelectedOutputName(output.name);
+                      setSelectedId(null);
+                      setSelectedFrameId(null);
+                    }}
+                  >
                     <div className="kb-frame-thumbs">
                       {output.previewUrls.slice(0, 4).map((url) => (
                         <img key={url} src={url} alt={output.name} />
@@ -601,6 +646,23 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
                             <button
                               type="button"
                               className="btn btn--ghost"
+                              title={t('kb.title.editFrames', lang)}
+                              onClick={() =>
+                                setFrameEditTarget({
+                                  scope: 'output',
+                                  title: output.name,
+                                  dirName: output.name,
+                                  absPath: output.absPath,
+                                  frameUrls: output.previewUrls,
+                                  frameFileNames: output.frameFileNames,
+                                })
+                              }
+                            >
+                              {t('kb.btn.editFrames', lang)}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
                               title={output.absPath}
                               onClick={() => void window.skeletonElf.frames.openDir(output.name)}
                             >
@@ -647,6 +709,7 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
                   onClick={() => {
                     setSelectedId(item.id);
                     setSelectedFrameId(null);
+                    setSelectedOutputName(null);
                   }}
                 >
                   {item.kind === 'video' ? (
@@ -715,7 +778,16 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
                 <button
                   type="button"
                   className="btn btn--primary"
-                  onClick={() => setFrameEditProject(selectedFrameProject)}
+                  onClick={() =>
+                    setFrameEditTarget({
+                      scope: 'source',
+                      title: selectedFrameProject.name,
+                      id: selectedFrameProject.id,
+                      absPath: selectedFrameProject.absPath,
+                      frameUrls: selectedFrameProject.frameUrls,
+                      frameFileNames: selectedFrameProject.frameFileNames,
+                    })
+                  }
                 >
                   {t('kb.btn.editFrames', lang)}
                 </button>
@@ -740,6 +812,88 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
                   {t('kb.btn.openDir', lang)}
                 </button>
                 <button type="button" className="btn btn--ghost" onClick={() => setSelectedFrameId(null)}>
+                  {t('kb.btn.clearSelection', lang)}
+                </button>
+              </div>
+            </>
+          ) : !selected && selectedOutput ? (
+            <>
+              {selectedOutput.previewUrls.length > 0 ? (
+                <img
+                  className="kb-detail__preview"
+                  src={selectedOutput.previewUrls[0]}
+                  alt={selectedOutput.name}
+                />
+              ) : null}
+
+              <div className="balance-extra">
+                <div>
+                  <span>{t('kb.detail.type', lang)}</span>
+                  <strong>
+                    {selectedOutput.kind === 'key'
+                      ? t('kb.type.matteKey', lang)
+                      : t('kb.type.matte', lang)}
+                  </strong>
+                </div>
+                <div>
+                  <span>{t('kb.detail.frames', lang)}</span>
+                  <strong>{selectedOutput.frameFileNames.length}</strong>
+                </div>
+                <div>
+                  <span>{t('kb.detail.source', lang)}</span>
+                  <strong>{selectedOutput.sourceName}</strong>
+                </div>
+              </div>
+
+              <p className="field__hint" style={{ wordBreak: 'break-all' }}>
+                {selectedOutput.name}
+              </p>
+
+              <p className="field__hint" style={{ wordBreak: 'break-all' }}>
+                {t('kb.detail.copy', lang)}
+                <code>{selectedOutput.absPath}</code>
+              </p>
+
+              <div className="actions">
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  onClick={() =>
+                    setFrameEditTarget({
+                      scope: 'output',
+                      title: selectedOutput.name,
+                      dirName: selectedOutput.name,
+                      absPath: selectedOutput.absPath,
+                      frameUrls: selectedOutput.previewUrls,
+                      frameFileNames: selectedOutput.frameFileNames,
+                    })
+                  }
+                >
+                  {t('kb.btn.editFrames', lang)}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() =>
+                    setPreview({
+                      title: `${selectedOutput.name} · ${t('kb.frames.count', lang, {
+                        count: String(selectedOutput.frameCount),
+                      })}`,
+                      frameUrls: selectedOutput.previewUrls,
+                      fps: 12,
+                    })
+                  }
+                >
+                  {t('kb.btn.preview', lang)}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => void window.skeletonElf.frames.openDir(selectedOutput.name)}
+                >
+                  {t('kb.btn.openDir', lang)}
+                </button>
+                <button type="button" className="btn btn--ghost" onClick={() => setSelectedOutputName(null)}>
                   {t('kb.btn.clearSelection', lang)}
                 </button>
               </div>
@@ -839,29 +993,29 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
       </div>
 
       {/* 帧集合逐帧编辑：先挑一帧 */}
-      {frameEditProject ? (
-        <div className="modal-backdrop" onClick={() => setFrameEditProject(null)}>
+      {frameEditTarget ? (
+        <div className="modal-backdrop" onClick={() => setFrameEditTarget(null)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal__head">
-              <h3>{t('kb.btn.editFrames', lang)} · {frameEditProject.name}</h3>
-              <button type="button" className="btn btn--ghost" onClick={() => setFrameEditProject(null)}>
+              <h3>{t('kb.btn.editFrames', lang)} · {frameEditTarget.title}</h3>
+              <button type="button" className="btn btn--ghost" onClick={() => setFrameEditTarget(null)}>
                 {t('kb.btn.cancel', lang)}
               </button>
             </div>
             <p className="field__hint">{t('kb.editFrames.hint', lang)}</p>
-            {frameEditProject.frameUrls.length === 0 ? (
+            {frameEditTarget.frameUrls.length === 0 ? (
               <p className="muted">{t('kb.editFrames.missing', lang)}</p>
             ) : (
               <div className="frame-pick-grid">
-                {frameEditProject.frameUrls.map((url, index) => {
-                  const fileName = frameEditProject.frameFileNames[index] ?? '';
+                {frameEditTarget.frameUrls.map((url, index) => {
+                  const fileName = frameEditTarget.frameFileNames[index] ?? '';
                   return (
                     <button
                       type="button"
                       key={fileName || index}
                       className="frame-pick"
                       title={fileName}
-                      onClick={() => void openFrameEditor(frameEditProject, fileName)}
+                      onClick={() => void openFrameEditor(frameEditTarget, fileName)}
                     >
                       <img src={url} alt={fileName} />
                       <span className="frame-pick__no">{index + 1}</span>

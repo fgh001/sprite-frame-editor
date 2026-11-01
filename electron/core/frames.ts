@@ -20,7 +20,78 @@ import { msg } from './msg';
 
 const META_FILE = 'meta.json';
 
-/** 文件名里不能出现的字符统一换成下划线，防止越权写到别处 */
+/**
+ * 认作「一帧」的图片扩展名。
+ *
+ * 只要用户往集合目录里丢的是这些图片，就算一帧 —— 不再要求必须叫
+ * `frame_001.png`。抽帧产出的命名是 frame_%03d.png，但用户手动拷进来的
+ * 图往往带后缀（「frame_009 - 副本.png」「封面.jpg」），名字不该把他们挡在外面。
+ */
+const FRAME_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp']);
+
+/**
+ * 列出目录里的全部帧文件（按文件名自然序：frame_2 排在 frame_10 前面）。
+ *
+ * 只看「是不是图片」，不看名字长什么样：用户在资源管理器里怎么命名、
+ * 怎么复制改名，都应该被当成帧读出来。隐藏文件和非图片文件不算。
+ */
+export function listFrameFiles(dir: string): string[] {
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((name) => !name.startsWith('.'))
+      .filter((name) => FRAME_EXTS.has(path.extname(name).toLowerCase()))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 抠图结果目录的元信息（写在目录内的 meta.json 里）。
+ *
+ * 为什么需要它：以前「这是模型抠图还是传统抠图」「源集合叫什么」全靠目录名后缀
+ * （-matte / -key）猜。用户在资源管理器里一改名就猜错了。现在产出时把事实写进
+ * meta.json，读取时以它为准；没有 meta.json 的旧目录才回退到后缀推断。
+ */
+export interface FrameOutputMeta {
+  kind: 'matte' | 'key';
+  /** 源集合名（产出时记下，之后源集合改名/删除也不影响显示） */
+  sourceName: string;
+  createdAt: string;
+  /** 模型抠图用的模型名，传统抠图不需要 */
+  model?: string;
+}
+
+const OUTPUT_META_FILE = 'meta.json';
+
+export function readFrameOutputMeta(dir: string): FrameOutputMeta | null {
+  try {
+    const raw = fs.readFileSync(path.join(dir, OUTPUT_META_FILE), 'utf8');
+    const data = JSON.parse(raw) as Partial<FrameOutputMeta>;
+    if (data.kind !== 'matte' && data.kind !== 'key') return null;
+    return {
+      kind: data.kind,
+      sourceName: typeof data.sourceName === 'string' ? data.sourceName : '',
+      createdAt: typeof data.createdAt === 'string' ? data.createdAt : '',
+      model: typeof data.model === 'string' ? data.model : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function writeFrameOutputMeta(dir: string, meta: FrameOutputMeta): void {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, OUTPUT_META_FILE);
+    const tmp = `${target}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(meta, null, 2), 'utf8');
+    fs.renameSync(tmp, target);
+  } catch {
+    /* 写不进去不影响抠图结果本身，读取时会回退到目录名推断 */
+  }
+}
 export function sanitizeFolderName(input: string): string {
   const cleaned = input
     .trim()
@@ -37,12 +108,16 @@ export function sanitizeFolderName(input: string): string {
  * 混在同一个目录里既难区分，也不好批量清理（想删掉所有抠图结果得一个个挑）。
  */
 export function projectDirOf(id: string): string {
-  /* 带 -matte / -key 后缀的是「抠图结果」，去 outputs/ 找。
-     前端的「定位文件夹」按钮会直接把 walk-matte 这种 id 传进来。 */
-  if (/-(matte|key)$/i.test(id)) {
-    return path.join(getDataDirs().frameOutputs, id);
-  }
-  return path.join(getDataDirs().frameSources, id);
+  const dirs = getDataDirs();
+  const inSources = path.join(dirs.frameSources, id);
+  const inOutputs = path.join(dirs.frameOutputs, id);
+  /* 目录名就是身份：**先看磁盘上它到底在哪**，只有两边都不存在时才按后缀猜。
+     这样用户把 walk-matte 改成「我的抠图」之后，定位目录、删除、
+     编辑帧都不会跑到 sources/ 下去找错地方。 */
+  if (fs.existsSync(inSources)) return inSources;
+  if (fs.existsSync(inOutputs)) return inOutputs;
+  if (/-(matte|key)$/i.test(id)) return inOutputs;
+  return inSources;
 }
 
 /** 抠图结果目录：data/frames/outputs/<id>-matte/ */
@@ -74,62 +149,79 @@ function writeMeta(dir: string, meta: FrameProjectMeta): void {
   fs.renameSync(tmp, target);
 }
 
-function toView(meta: FrameProjectMeta): FrameProjectView {
-  const dir = projectDirOf(meta.id);
-  let frameFileNames: string[] = [];
+/**
+ * 单帧的预览地址。
+ *
+ * 末尾带 `?v=<mtime>`：编辑器改过某一帧后 mtime 变化，URL 随之变化，
+ * Chromium 不会命中旧缓存，界面预览才会立刻换成新图。
+ */
+function outputUrlOf(dirName: string, fileName: string, dir: string): string {
+  let ver = 0;
   try {
-    frameFileNames = fs
-      .readdirSync(dir)
-      .filter((name) => /^frame_\d+\.png$/i.test(name))
-      .sort();
+    ver = Math.round(fs.statSync(path.join(dir, fileName)).mtimeMs);
   } catch {
-    frameFileNames = [];
+    /* 文件刚好被删，退回 0 */
   }
+  return `kbmedia://output/${encodeURIComponent(dirName)}/${encodeURIComponent(fileName)}?v=${ver}`;
+}
+
+/** 抽帧集合的单帧地址（kbmedia://frame/<集合>/<帧名>?v=<mtime>） */
+function frameUrlOf(projectId: string, fileName: string, dir: string): string {
+  let ver = 0;
+  try {
+    ver = Math.round(fs.statSync(path.join(dir, fileName)).mtimeMs);
+  } catch {
+    /* 文件刚好被删，退回 0 */
+  }
+  return `kbmedia://frame/${encodeURIComponent(projectId)}/${encodeURIComponent(fileName)}?v=${ver}`;
+}
+
+function toView(meta: FrameProjectMeta, dirName: string): FrameProjectView {
+  /* 身份就是目录名：id / name 一律以磁盘上的真实目录为准，
+     meta.json 里存的是改名前的旧值，不能信。 */
+  const dir = projectDirOf(dirName);
+  const frameFileNames = listFrameFiles(dir);
 
   /* 顺便看看这个项目跑过哪些批量抠图 —— 结果统一放在 data/frames/outputs/ 下，
-     和抽帧集合（data/frames/sources/）分开两层，输入和产出不会混。 */
+     和抽帧集合（data/frames/sources/）分开两层，输入和产出不会混。
+     这里动态扫一遍 outputs：靠目录里 meta.json 的 sourceName 认亲，
+     不再用「<集合名>-matte / -key」拼路径 —— 用户改了目录名也照样认得出。 */
   const outputs: FrameProjectOutput[] = [];
-  for (const kind of ['matte', 'key'] as const) {
-    const outDir = outputDirOf(meta.id, kind);
-    try {
-      if (!fs.statSync(outDir).isDirectory()) continue;
-      const outNames = fs
-        .readdirSync(outDir)
-        .filter((name) => /^frame_\d+\.png$/i.test(name))
-        .sort();
+  try {
+    const outRoot = getDataDirs().frameOutputs;
+    for (const entry of fs.readdirSync(outRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('_')) continue;
+      const outDir = path.join(outRoot, entry.name);
+      const outMeta = readFrameOutputMeta(outDir);
+      const belongs = outMeta
+        ? outMeta.sourceName === dirName
+        : entry.name === `${dirName}-matte` || entry.name === `${dirName}-key`;
+      if (!belongs) continue;
+      const outNames = listFrameFiles(outDir);
       if (outNames.length === 0) continue;
       outputs.push({
-        kind,
-        name: path.basename(outDir),
+        kind: outMeta?.kind ?? (/-key$/i.test(entry.name) ? 'key' : 'matte'),
+        name: entry.name,
         absPath: outDir,
         frameCount: outNames.length,
+        frameFileNames: outNames,
         // 预览走 kbmedia://output/<目录名>/<文件名>，协议层会去 outputs/ 下找。
         // 返回**全部**帧地址：列表只显示前 6 张，但播放窗口需要完整序列。
-        previewUrls: outNames.map(
-          (name) =>
-            `kbmedia://output/${encodeURIComponent(`${meta.id}-${kind}`)}/${encodeURIComponent(name)}`,
-        ),
+        previewUrls: outNames.map((name) => outputUrlOf(entry.name, name, outDir)),
       });
-    } catch {
-      /* 目录不存在就跳过，这很正常 */
     }
+  } catch {
+    /* outputs 目录不存在就当作没有抠图结果，很正常 */
   }
 
   return {
     ...meta,
+    // 覆盖掉 meta.json 里可能过期的身份：目录名说了算
+    id: dirName,
+    name: dirName,
     absPath: dir,
     frameFileNames,
-    /* URL 带上每帧的 mtime 做版本号：编辑器改过某一帧后 mtime 变了，
-       URL 随之变化，Chromium 不会命中旧缓存，列表预览才会换成新图。 */
-    frameUrls: frameFileNames.map((name) => {
-      let ver = 0;
-      try {
-        ver = Math.round(fs.statSync(path.join(dir, name)).mtimeMs);
-      } catch {
-        /* 文件刚好被删，退回 0 */
-      }
-      return `kbmedia://frame/${encodeURIComponent(meta.id)}/${encodeURIComponent(name)}?v=${ver}`;
-    }),
+    frameUrls: frameFileNames.map((name) => frameUrlOf(dirName, name, dir)),
     outputs,
   };
 }
@@ -158,12 +250,14 @@ export function listFrameProjects(): FrameProjectView[] {
     if (!meta) {
       /* meta.json 被删了但图片还在 —— 宽容处理：自动重建一份 meta。
          用户经常直接进文件夹删东西，不该因此让整个项目消失。
-         只有目录里一张 frame_*.png 都没有时才跳过（那是真的空壳）。 */
+         只有目录里一张图片都没有时才跳过（那是真的空壳）。 */
       meta = rebuildMeta(dir, entry.name);
       if (!meta) continue;
     }
 
-    const view = toView(meta);
+    /* 目录名就是身份：meta.json 里的 id / name 只用来兼容旧数据，
+       显示与寻址一律走 toView 传入的真实目录名，改名后立刻正确。 */
+    const view = toView(meta, entry.name);
     // 一帧都没有的空项目不展示（文件可能已经被手动清空）
     if (view.frameFileNames.length === 0) continue;
     projects.push(view);
@@ -197,26 +291,24 @@ export function listFrameOutputs(): FrameOutputView[] {
 
     let frameFileNames: string[] = [];
     try {
-      frameFileNames = fs
-        .readdirSync(dir)
-        .filter((name) => /^frame_\d+\.png$/i.test(name))
-        .sort();
+      frameFileNames = listFrameFiles(dir);
     } catch {
       continue;
     }
     if (frameFileNames.length === 0) continue;
 
-    const kind: 'matte' | 'key' = /-key$/i.test(entry.name) ? 'key' : 'matte';
+    /* 类型和来源集合优先读目录里的 meta.json（产出时写下的实话）；
+       老目录没有 meta.json，才回退到目录名后缀推断。 */
+    const meta = readFrameOutputMeta(dir);
+    const kind: 'matte' | 'key' = meta?.kind ?? (/-key$/i.test(entry.name) ? 'key' : 'matte');
     outputs.push({
       name: entry.name,
       kind,
       absPath: dir,
       frameCount: frameFileNames.length,
-      previewUrls: frameFileNames.map(
-        (name) => `kbmedia://output/${encodeURIComponent(entry.name)}/${encodeURIComponent(name)}`,
-      ),
-      // 源集合名 = 去掉 -matte / -key 后缀（源集合可能已经被删掉）
-      sourceName: entry.name.replace(/-(matte|key)$/i, ''),
+      frameFileNames,
+      previewUrls: frameFileNames.map((name) => outputUrlOf(entry.name, name, dir)),
+      sourceName: meta?.sourceName || entry.name.replace(/-(matte|key)$/i, ''),
     });
   }
 
@@ -267,15 +359,7 @@ export function migrateFramesToSubfolders(): void {
 
 /** 用目录里现有的帧文件重建一份 meta（用户手滑删了 meta.json 时的兜底） */
 function rebuildMeta(dir: string, folderName: string): FrameProjectMeta | null {
-  let frameFiles: string[] = [];
-  try {
-    frameFiles = fs
-      .readdirSync(dir)
-      .filter((name) => /^frame_\d+\.png$/i.test(name))
-      .sort();
-  } catch {
-    return null;
-  }
+  const frameFiles = listFrameFiles(dir);
   if (frameFiles.length === 0) return null;
 
   // 从第一帧读尺寸（读不到就记 0，界面照常显示，只是没有尺寸标注）
@@ -342,11 +426,13 @@ export function saveFrameProject(input: SaveFrameProjectInput): FrameProjectView
        抽帧一快就必现。复用目录既没有这个竞态，也省一次磁盘操作。 */
     fs.mkdirSync(dir, { recursive: true });
     for (const entry of fs.readdirSync(dir)) {
-      if (!/^frame_\d+\.png$/i.test(entry) && entry !== 'meta.json') continue;
-      try {
-        fs.unlinkSync(path.join(dir, entry));
-      } catch {
-        /* 文件被预览/播放器占着删不掉：同名帧后面会被覆盖写，留着不影响 */
+      // 内部集合（_preview 之类）：清掉旧的帧和旧 meta，避免残留帧混进新结果
+      if (entry === 'meta.json' || FRAME_EXTS.has(path.extname(entry).toLowerCase())) {
+        try {
+          fs.unlinkSync(path.join(dir, entry));
+        } catch {
+          /* 文件被预览/播放器占着删不掉：同名帧后面会被覆盖写，留着不影响 */
+        }
       }
     }
   } else {
@@ -376,7 +462,7 @@ export function saveFrameProject(input: SaveFrameProjectInput): FrameProjectView
     createdAt: new Date().toISOString(),
   };
   writeMeta(dir, meta);
-  return toView(meta);
+  return toView(meta, id);
 }
 
 /**
@@ -399,7 +485,7 @@ export function renameFrameProject(id: string, nextName: string): FrameProjectVi
   if (target === path.basename(from)) {
     const same = readMeta(from);
     if (!same) throw new Error(msg('err.frames.noMeta'));
-    return toView(same);
+    return toView(same, target);
   }
 
   const to = path.join(root, target);
@@ -409,12 +495,12 @@ export function renameFrameProject(id: string, nextName: string): FrameProjectVi
 
   fs.renameSync(from, to);
 
-  // meta.json 里的 id / name 必须跟着改，否则 listFrameProjects 找不到它
+  // meta.json 里的 id / name 顺手同步成新目录名（不写也照样能用，写了更整洁）
   const meta = readMeta(to) ?? rebuildMeta(to, target);
   if (!meta) throw new Error(msg('err.frames.noFramesInSet'));
   const renamed: FrameProjectMeta = { ...meta, id: target, name: target };
   writeMeta(to, renamed);
-  return toView(renamed);
+  return toView(renamed, target);
 }
 
 /** 删除整个项目文件夹 */
@@ -436,12 +522,13 @@ export function removeFrameProject(id: string): void {
  */
 export function renameFrameOutput(name: string, nextName: string): string {
   const dirs = getDataDirs();
-  const match = /^(.*)-(matte|key)$/i.exec(String(name ?? '').trim());
-  if (!match) throw new Error(msg('err.frames.notOutputDir'));
-
-  const suffix = `-${match[2].toLowerCase()}`;
-  const from = path.join(dirs.frameOutputs, path.basename(String(name).trim()));
+  const from = path.join(dirs.frameOutputs, path.basename(String(name ?? '').trim()));
   if (!fs.existsSync(from)) throw new Error(msg('err.frames.outputMissing', { name }));
+
+  /* 保留原目录的后缀（如果有）。没有后缀也照样能改名 ——
+     用户在资源管理器里去掉过后缀的话，别再强制加回来。 */
+  const suffixMatch = /-(matte|key)$/i.exec(path.basename(from));
+  const suffix = suffixMatch ? `-${suffixMatch[1].toLowerCase()}` : '';
 
   const raw = String(nextName ?? '').trim();
   if (!raw) throw new Error(msg('err.frames.emptyName'));
@@ -468,17 +555,44 @@ export function renameFrameOutput(name: string, nextName: string): string {
 export function writeFrameFile(id: string, fileName: string, pngBase64: string): void {
   const dir = projectDirOf(sanitizeFolderName(id));
   if (!dir.startsWith(getDataDirs().frames)) throw new Error(msg('err.frames.outsideDir'));
-  if (!/^frame_\d+\.png$/i.test(fileName)) throw new Error(msg('err.frames.badFrameName', { name: fileName }));
-  const target = path.join(dir, fileName);
+  writePngInto(dir, fileName, pngBase64);
+}
+
+/**
+ * 用编辑器改完的 PNG 覆盖抠图结果里的某一帧（data/frames/outputs/<目录名>）。
+ *
+ * 和抽帧集合同一套校验：目录名只能是 outputs 下已存在的目录，
+ * 文件名只能是单段、且该文件必须已经存在。
+ */
+export function writeOutputFrameFile(dirName: string, fileName: string, pngBase64: string): void {
+  const root = getDataDirs().frameOutputs;
+  const safeDirName = path.basename(String(dirName ?? ''));
+  if (!safeDirName || safeDirName !== dirName) throw new Error(msg('err.frames.outsideDir'));
+  const dir = path.join(root, safeDirName);
+  if (!dir.startsWith(root) || !fs.existsSync(dir)) throw new Error(msg('err.frames.outsideDir'));
+  writePngInto(dir, fileName, pngBase64);
+}
+
+/** 覆盖 dir 下已存在的某一帧图片（先写 .tmp 再 rename，避免写坏原帧） */
+function writePngInto(dir: string, fileName: string, pngBase64: string): void {
+  // 只要求「是单段文件名 + 是这个目录里已存在的图片」，不再限制 frame_*.png
+  const safeName = path.basename(String(fileName ?? ''));
+  if (!safeName || safeName !== fileName) throw new Error(msg('err.frames.badFrameName', { name: fileName }));
+  if (!FRAME_EXTS.has(path.extname(safeName).toLowerCase())) {
+    throw new Error(msg('err.frames.badFrameName', { name: fileName }));
+  }
+  const target = path.join(dir, safeName);
   if (!target.startsWith(dir) || !fs.existsSync(target)) {
     throw new Error(msg('err.frames.badFramePath'));
   }
 
+  /* 编辑器导出的永远是 PNG 数据，这里原样写回该文件名。
+     如果原帧是 .jpg/.webp，文件内容变成 PNG 但扩展名不变 —— Chromium 按内容
+     嗅探类型，预览照常显示；不想改名是为了不打乱用户自己的命名。 */
   const base64 = String(pngBase64 ?? '').replace(/^data:image\/png;base64,/, '');
   const buffer = Buffer.from(base64, 'base64');
   if (buffer.length === 0) throw new Error(msg('err.frames.badData'));
 
-  // 先写临时文件再改名：写到一半崩了也不会把原帧毁掉
   const tmp = `${target}.tmp`;
   fs.writeFileSync(tmp, buffer);
   fs.renameSync(tmp, target);
@@ -491,18 +605,17 @@ export function writeFrameFile(id: string, fileName: string, pngBase64: string):
 export function removeFrameFile(id: string, fileName: string): { frameCount: number } {
   const dir = projectDirOf(sanitizeFolderName(id));
   if (!dir.startsWith(getDataDirs().frames)) throw new Error(msg('err.frames.outsideDir'));
-  // 只允许删 frame_*.png，防止路径穿越或被拿来删 meta.json
-  if (!/^frame_\d+\.png$/i.test(fileName)) throw new Error(msg('err.frames.badFrameName', { name: fileName }));
-  const target = path.join(dir, fileName);
+  // 只允许删这个目录里的图片，防止路径穿越或被拿来删 meta.json
+  const safeName = path.basename(String(fileName ?? ''));
+  if (!safeName || safeName !== fileName) throw new Error(msg('err.frames.badFrameName', { name: fileName }));
+  if (!FRAME_EXTS.has(path.extname(safeName).toLowerCase())) {
+    throw new Error(msg('err.frames.badFrameName', { name: fileName }));
+  }
+  const target = path.join(dir, safeName);
   if (!target.startsWith(dir)) throw new Error(msg('err.frames.badFramePath'));
   if (fs.existsSync(target)) fs.unlinkSync(target);
 
-  let frameCount = 0;
-  try {
-    frameCount = fs.readdirSync(dir).filter((name) => /^frame_\d+\.png$/i.test(name)).length;
-  } catch {
-    return { frameCount: 0 };
-  }
+  const frameCount = listFrameFiles(dir).length;
   try {
     const metaPath = path.join(dir, 'meta.json');
     if (fs.existsSync(metaPath)) {

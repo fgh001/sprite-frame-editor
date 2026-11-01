@@ -146,6 +146,9 @@ const api: SkeletonElfApi = {
     /** 用编辑器改完的 PNG 覆盖某一帧（素材库里编辑帧集合用） */
     writeFrame: (id: string, fileName: string, pngBase64: string) =>
       ipcRenderer.invoke('frames:writeFrame', id, fileName, pngBase64),
+    /** 同上，写的是抠图结果（frames/outputs/<目录名>） */
+    writeOutputFrame: (dirName: string, fileName: string, pngBase64: string) =>
+      ipcRenderer.invoke('frames:writeOutputFrame', dirName, fileName, pngBase64),
     openDir: (id?: string) => ipcRenderer.invoke('frames:openDir', id),
   },
   prompts: {
