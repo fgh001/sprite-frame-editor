@@ -211,6 +211,8 @@ const zhCN: Dict = {
   'err.image.hint401': '（API Key 无效或未开通该模型）',
   'err.image.hint403': '（没有权限，检查模型是否已在控制台开通）',
   'err.image.hint404': '（接口地址不存在，检查 Base URL）',
+  'err.image.hintNotOpen':
+    '（该账号还没开通这个图像模型：去火山方舟控制台「开通管理」里开通它，或换成一个已开通的模型）',
   'err.image.hint429': '（触发限流，稍后再试）',
   'err.image.http': 'HTTP {status} {statusText}{hint}{detail}',
   'err.image.httpDetail': '：{detail}',
@@ -270,7 +272,8 @@ const zhCN: Dict = {
   'prompt.assistant':
     '你是「精灵帧动画编辑器」的内置助手，服务对象是做 2D 游戏精灵动画的美术/程序。' +
     '流程是：图片 → 循环视频 → 2D 帧动画。' +
-    '回答用简体中文，简洁、可执行；涉及具体操作时说明在哪个页面点哪个按钮。不要臆造本应用不存在的功能。',
+    '回答语言跟随用户提问的语言（用户用英文问就用英文答，用日文问就用日文答），不要因为界面语言而固定回答语言；' +
+    '简洁、可执行；涉及具体操作时说明在哪个页面点哪个按钮。不要臆造本应用不存在的功能。',
   'prompt.bgColor': [
     '你是游戏美术资源助手，负责为 AI 出图挑选「键控纯色背景」。',
     '步骤：1) 从描述里判断主体（角色/物件）最突出的主色调；2) 选一个与主体色相差最大的高饱和纯色作为背景。',
@@ -556,6 +559,8 @@ const zhTW: Dict = {
   'err.image.hint401': '（API Key 無效或未開通該模型）',
   'err.image.hint403': '（沒有權限，檢查模型是否已在控制台開通）',
   'err.image.hint404': '（介面位址不存在，檢查 Base URL）',
+  'err.image.hintNotOpen':
+    '（該帳號還沒開通這個影像模型：去火山方舟控制台「開通管理」裡開通它，或換成一個已開通的模型）',
   'err.image.hint429': '（觸發限流，稍後再試）',
   'err.image.http': 'HTTP {status} {statusText}{hint}{detail}',
   'err.image.httpDetail': '：{detail}',
@@ -615,7 +620,8 @@ const zhTW: Dict = {
   'prompt.assistant':
     '你是「精靈影格動畫編輯器」的內建助手，服務對象是做 2D 遊戲精靈動畫的美術/程式。' +
     '流程是：圖片 → 循環影片 → 2D 影格動畫。' +
-    '回答用繁體中文，簡潔、可執行；涉及具體操作時說明在哪個頁面按哪個按鈕。不要臆造本應用不存在的功能。',
+    '回答語言跟隨使用者提問的語言（使用者用英文問就用英文答，用日文問就用日文答），不要因為介面語言而固定回答語言；' +
+    '簡潔、可執行；涉及具體操作時說明在哪個頁面按哪個按鈕。不要臆造本應用不存在的功能。',
   'prompt.bgColor': [
     '你是遊戲美術資源助手，負責為 AI 出圖挑選「鍵控純色背景」。',
     '步驟：1) 從描述裡判斷主體（角色/物件）最突出的主色調；2) 選一個與主體色相差最大的高飽和純色作為背景。',
@@ -910,6 +916,8 @@ const en: Dict = {
   'err.image.hint401': ' (the API key is invalid or the model is not activated)',
   'err.image.hint403': ' (permission denied — check whether the model is activated in the console)',
   'err.image.hint404': ' (the endpoint does not exist — check the Base URL)',
+  'err.image.hintNotOpen':
+    ' (this account has not activated that image model — open it under “Activation” in the Volcano Ark console, or switch to a model you already have)',
   'err.image.hint429': ' (rate limited — try again later)',
   'err.image.http': 'HTTP {status} {statusText}{hint}{detail}',
   'err.image.httpDetail': ': {detail}',
@@ -970,7 +978,7 @@ const en: Dict = {
   'prompt.assistant':
     'You are the built-in assistant of “Sprite Frame Editor”, serving artists and programmers who make 2D game sprite animations. ' +
     'The workflow is: image → looping video → 2D frame animation. ' +
-    'Answer in English, concisely and actionably; when describing steps, say which page and which button to use. Never invent features this app does not have.',
+    'Reply in the language the user writes in (an English question gets an English answer, a Japanese question gets a Japanese answer) — never lock the reply language to the UI language. Be concise and actionable; when describing steps, say which page and which button to use. Never invent features this app does not have.',
   'prompt.bgColor': [
     'You are a game-art asset assistant that picks a “keying flat background” for AI image generation.',
     'Steps: 1) infer the dominant hue of the subject (character/object) from the description; 2) pick a highly saturated solid colour whose hue contrasts most with the subject.',

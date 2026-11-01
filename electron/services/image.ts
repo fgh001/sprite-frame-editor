@@ -48,8 +48,12 @@ async function describeHttpError(res: Response): Promise<string> {
   } catch {
     /* 响应体读不出来就只报状态码 */
   }
-  const hint =
-    res.status === 401
+  /* 方舟「模型未开通」也走 404，message 里带 ModelNotOpen / has not activated。
+     不单独识别的话，会被下面那条 404 兜底误导成「检查 Base URL」。 */
+  const notOpen = /ModelNotOpen|has not activated|未开通|未開通/i.test(detail);
+  const hint = notOpen
+    ? msg('err.image.hintNotOpen')
+    : res.status === 401
       ? msg('err.image.hint401')
       : res.status === 403
         ? msg('err.image.hint403')

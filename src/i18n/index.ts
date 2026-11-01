@@ -175,6 +175,10 @@ const zhCN: Dict = {
   'kb.confirm.removeTitle': '确定从素材库删除「{name}」？',
   'kb.confirm.removeBody1': '只会删除素材库里的副本（data/knowledge/files 下的文件）与缩略图。',
   'kb.confirm.removeBody2': '你电脑上的原始文件不受影响。',
+  'kb.confirm.removeProjectTitle': '确定删除帧集合「{name}」？',
+  'kb.confirm.removeOutputTitle': '确定删除抠图结果「{name}」？',
+  'kb.confirm.removeSetBody': '会连同这个目录里的 {count} 帧一起删除，无法恢复。',
+  'kb.confirm.removeSetSource': '（源抽帧集合不受影响）',
 
   /* ---------- 批量抠图 ---------- */
   'mt.title': '批量抠图',
@@ -730,6 +734,9 @@ const zhCN: Dict = {
     '循环点在帧 {frame}（与首帧差异 {score}），已裁掉后面 {removed} 帧。现在这些帧首尾衔接，循环不会跳。',
   'fs.log.dedup': '去重：丢掉 {count} 张重复帧',
   'fs.log.done': '完成 {count} 张 / {seconds}s · 兜底 {fallback} 次 · 最慢 {slowest}ms',
+  'fs.log.frame': '第 {n} 帧 {cost}ms{fallback}{error}',
+  'fs.log.frameFallback': '（seeked 未触发，走兜底）',
+  'fs.err.toDataUrl': 'toDataURL 返回异常',
   'fs.msg.extracted': '已抽出 {frames} 帧{bgRemoved}{loopCut}，可直接播放预览。满意后点「保存为集合」再落盘。',
   'fs.msg.bgRemovedPart': '（已去背景）',
   'fs.msg.loopCutPart': '，已裁到循环点',
@@ -1024,6 +1031,10 @@ const zhTW: Dict = {
   'kb.confirm.removeTitle': '確定從素材庫刪除「{name}」？',
   'kb.confirm.removeBody1': '只會刪除素材庫裡的副本（data/knowledge/files 下的檔案）與縮圖。',
   'kb.confirm.removeBody2': '你電腦上的原始檔案不受影響。',
+  'kb.confirm.removeProjectTitle': '確定刪除影格集合「{name}」？',
+  'kb.confirm.removeOutputTitle': '確定刪除去背結果「{name}」？',
+  'kb.confirm.removeSetBody': '會連同這個目錄裡的 {count} 格一起刪除，無法復原。',
+  'kb.confirm.removeSetSource': '（來源抽格集合不受影響）',
 
   /* ---------- 批次去背 ---------- */
   'mt.title': '批次去背',
@@ -1578,6 +1589,9 @@ const zhTW: Dict = {
     '循環點在第 {frame} 格（與首格差異 {score}），已裁掉後面 {removed} 格。現在這些格首尾銜接，循環不會跳。',
   'fs.log.dedup': '去重：丟掉 {count} 張重複影格',
   'fs.log.done': '完成 {count} 張 / {seconds}s · 備援 {fallback} 次 · 最慢 {slowest}ms',
+  'fs.log.frame': '第 {n} 格 {cost}ms{fallback}{error}',
+  'fs.log.frameFallback': '（seeked 未觸發，改用備援）',
+  'fs.err.toDataUrl': 'toDataURL 回傳異常',
   'fs.msg.extracted': '已抽出 {frames} 格{bgRemoved}{loopCut}，可直接播放預覽。滿意後按「儲存為集合」再寫入磁碟。',
   'fs.msg.bgRemovedPart': '（已去背景）',
   'fs.msg.loopCutPart': '，已裁到循環點',
@@ -1877,6 +1891,11 @@ const en: Dict = {
   'kb.confirm.removeTitle': 'Delete “{name}” from the library?',
   'kb.confirm.removeBody1': 'Only the library copy (under data/knowledge/files) and its thumbnail are removed.',
   'kb.confirm.removeBody2': 'Your original file is not touched.',
+  'kb.confirm.removeProjectTitle': 'Delete the frame set “{name}”?',
+  'kb.confirm.removeOutputTitle': 'Delete the matte result “{name}”?',
+  'kb.confirm.removeSetBody':
+    'Its {count} frames will be deleted with it and cannot be recovered.',
+  'kb.confirm.removeSetSource': '(The source frame set is untouched.)',
 
   /* ---------- Batch matting ---------- */
   'mt.title': 'Batch matting',
@@ -2456,6 +2475,9 @@ const en: Dict = {
     'Loop point at frame {frame} (diff from the first frame: {score}); the trailing {removed} frames were trimmed. These frames now join seamlessly.',
   'fs.log.dedup': 'Dedup: dropped {count} duplicate frames',
   'fs.log.done': 'Done {count} frames in {seconds}s · {fallback} fallbacks · slowest {slowest}ms',
+  'fs.log.frame': 'Frame {n} {cost}ms{fallback}{error}',
+  'fs.log.frameFallback': ' (seeked never fired, used the fallback)',
+  'fs.err.toDataUrl': 'toDataURL returned an unexpected result',
   'fs.msg.extracted':
     'Extracted {frames} frames{bgRemoved}{loopCut} and they can be previewed right away. When happy, press “Save as set” to write them to disk.',
   'fs.msg.bgRemovedPart': ' (background removed)',

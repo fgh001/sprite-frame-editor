@@ -205,6 +205,43 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
     notifyDataChanged();
   };
 
+  /** 删除帧集合（整目录删掉，源文件无副本，删了就没了） */
+  const handleRemoveFrameProject = async (id: string, name: string, count: number): Promise<void> => {
+    const confirmText = [
+      t('kb.confirm.removeProjectTitle', lang, { name }),
+      '',
+      t('kb.confirm.removeSetBody', lang, { count: String(count) }),
+    ].join('\n');
+    if (!window.confirm(confirmText)) return;
+    const res = await window.skeletonElf.frames.remove(id);
+    if (!res.ok) {
+      setMessage({ kind: 'err', text: res.error });
+      return;
+    }
+    setMessage({ kind: 'ok', text: t('kb.msg.removed', lang) });
+    await load();
+    notifyDataChanged();
+  };
+
+  /** 删除抠图结果目录（源抽帧集合不受影响） */
+  const handleRemoveFrameOutput = async (name: string, count: number): Promise<void> => {
+    const confirmText = [
+      t('kb.confirm.removeOutputTitle', lang, { name }),
+      '',
+      t('kb.confirm.removeSetBody', lang, { count: String(count) }),
+      t('kb.confirm.removeSetSource', lang),
+    ].join('\n');
+    if (!window.confirm(confirmText)) return;
+    const res = await window.skeletonElf.frames.remove(name);
+    if (!res.ok) {
+      setMessage({ kind: 'err', text: res.error });
+      return;
+    }
+    setMessage({ kind: 'ok', text: t('kb.msg.removed', lang) });
+    await load();
+    notifyDataChanged();
+  };
+
   const handleRemove = async (): Promise<void> => {
     if (!selected) return;
     const confirmText = [
@@ -438,6 +475,19 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
                             >
                               {t('kb.btn.rename', lang)}
                             </button>
+                            <button
+                              type="button"
+                              className="btn btn--ghost btn--danger"
+                              onClick={() =>
+                                void handleRemoveFrameProject(
+                                  project.id,
+                                  project.name,
+                                  project.frameFileNames.length,
+                                )
+                              }
+                            >
+                              {t('kb.btn.remove', lang)}
+                            </button>
                           </>
                         )}
                       </div>
@@ -550,6 +600,13 @@ export function KnowledgePage({ onOpenDataDir }: KnowledgePageProps): React.JSX.
                               }}
                             >
                               {t('kb.btn.rename', lang)}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn--ghost btn--danger"
+                              onClick={() => void handleRemoveFrameOutput(output.name, output.frameCount)}
+                            >
+                              {t('kb.btn.remove', lang)}
                             </button>
                           </>
                         )}

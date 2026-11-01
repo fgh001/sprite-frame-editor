@@ -726,7 +726,10 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
         };
         try {
           const dataUrl = canvas.toDataURL('image/png');
-          finishOnce(dataUrl.startsWith('data:image/png') ? dataUrl : '', 'toDataURL 返回异常');
+          finishOnce(
+            dataUrl.startsWith('data:image/png') ? dataUrl : '',
+            t('fs.err.toDataUrl', lang),
+          );
         } catch (err) {
           finishOnce('', err instanceof Error ? err.message : String(err));
         }
@@ -814,9 +817,12 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       // 只记录前 5 帧、失败帧和明显偏慢的帧，避免刷屏
       if (index < 5 || cost > 400 || captureError) {
         logs.push(
-          `第 ${index + 1} 帧 ${cost}ms${fellBack ? '（seeked 未触发，走兜底）' : ''}${
-            captureError ? ` ✗ ${captureError}` : ''
-          }`,
+          t('fs.log.frame', lang, {
+            n: String(index + 1),
+            cost: String(cost),
+            fallback: fellBack ? t('fs.log.frameFallback', lang) : '',
+            error: captureError ? ` ✗ ${captureError}` : '',
+          }),
         );
         setDiag([...logs]);
       }
