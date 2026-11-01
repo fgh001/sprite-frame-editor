@@ -20,6 +20,7 @@ import {
   renameFrameOutput,
   renameFrameProject,
   saveFrameProject,
+  writeFrameFile,
 } from '../core/frames';
 
 function toError(err: unknown): IpcErr {
@@ -117,6 +118,22 @@ export function registerFramesIpc(): void {
         if (typeof id !== 'string' || !id) throw new Error(msg('err.frames.badId'));
         if (typeof fileName !== 'string' || !fileName) throw new Error(msg('err.frames.badFileName'));
         return { ok: true, data: removeFrameFile(id, fileName) };
+      } catch (err) {
+        return toError(err);
+      }
+    },
+  );
+
+  /** 用编辑器改完的 PNG 覆盖某一帧（素材库里直接编辑帧集合的单帧） */
+  ipcMain.handle(
+    'frames:writeFrame',
+    async (_event, id: unknown, fileName: unknown, png: unknown): Promise<IpcResult<null>> => {
+      try {
+        if (typeof id !== 'string' || !id) throw new Error(msg('err.frames.badId'));
+        if (typeof fileName !== 'string' || !fileName) throw new Error(msg('err.frames.badFileName'));
+        if (typeof png !== 'string' || !png) throw new Error(msg('err.frames.badData'));
+        writeFrameFile(id, fileName, png);
+        return { ok: true, data: null };
       } catch (err) {
         return toError(err);
       }

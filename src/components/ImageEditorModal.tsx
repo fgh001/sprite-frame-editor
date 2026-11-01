@@ -6,7 +6,7 @@ import { t, useLang } from '../i18n';
 interface ImageEditorModalProps {
   image: EditableImage;
   onClose: () => void;
-  onSaved: (saved: GeneratedImage) => void;
+  onSaved?: (saved: GeneratedImage) => void;
   /**
    * 只要结果、不落盘（用于编辑内存里的帧动画）。
    * 提供后「应用并存入素材库」按钮会变成「应用到帧」，不会写任何文件。
@@ -1393,7 +1393,7 @@ export function ImageEditorModal({
       setSaveError(result.error);
       return;
     }
-    onSaved(result.data);
+    onSaved?.(result.data);
   };
 
   const sizeLabel = useMemo(() => `${image.width}×${image.height}`, [image.width, image.height]);

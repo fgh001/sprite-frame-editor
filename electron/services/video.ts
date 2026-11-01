@@ -3,10 +3,9 @@ import path from 'node:path';
 import type {
   GenerateLoopVideoInput,
   GenerateLoopVideoResult,
-  KnowledgeItem,
   LoopVideoProgress,
 } from '../../shared/ipc';
-import { addItems, createId } from '../core/knowledge';
+import { createId, stableIdOf } from '../core/knowledge';
 import { getDataDirs } from '../core/paths';
 import { getSlotRuntime } from '../core/settings';
 import { msg } from '../core/msg';
@@ -242,26 +241,13 @@ export async function generateLoopVideo(
   if (videoBuffer.length === 0) throw new Error(msg('err.video.emptyDownload'));
 
   const dirs = getDataDirs();
-  const id = createId('video');
-  const fileName = `${id}.mp4`;
+  // id 由最终文件名派生（素材库以磁盘文件名为准）
+  const fileName = `${createId('video')}.mp4`;
+  const id = stableIdOf('video', fileName);
   // 视频单独一个目录，不跟图片混放
   fs.mkdirSync(dirs.knowledgeVideos, { recursive: true });
   const absPath = path.join(dirs.knowledgeVideos, fileName);
   fs.writeFileSync(absPath, videoBuffer);
-
-  const item: KnowledgeItem = {
-    id,
-    fileName,
-    kind: 'video',
-    bytes: videoBuffer.length,
-    tags: [],
-    note: '',
-    source: 'ai-generated',
-    origin: { providerId: runtime.providerId, model: runtime.model, prompt },
-    createdAt: new Date().toISOString(),
-    asReference: false,
-  };
-  addItems([item]);
 
   onProgress({ stage: 'done', message: msg('err.video.done'), taskId, percent: 100 });
 

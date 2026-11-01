@@ -6,39 +6,21 @@ import { listItems } from './knowledge';
 import { msg } from './msg';
 
 /**
- * 内置单价表（元/张），用于本地估算花费。
- * 这不是服务商账单，只是让界面上有个大致数字；价格变了直接改这里。
+ * 统计数据源：素材库里所有图片 + cache/generated 下的文件。
+ *
+ * 注意：没有索引了，无法区分「AI 生成」和「手动导入」，也无法按模型分组，
+ * 所以只统计张数，单价/估算花费给不出（byModel 为空、estimatedCost 为 null）。
  */
-const IMAGE_UNIT_PRICE: Record<string, number> = {
-  'doubao-seedream-5-0-pro-260628': 0.3,
-  'doubao-seedream-4-5-251128': 0.25,
-  'doubao-seedream-4-0-250828': 0.2,
-  'doubao-seedream-3-0-t2i-250415': 0.2,
-  'gpt-image-1': 0.3,
-};
-
-/** 统计数据源：素材库 index.json 里 source=ai-generated 的条目 + cache/generated 下的文件 */
 export function computeUsage(): UsageStats {
   const dirs = getDataDirs();
-  const items = listItems().filter((item) => item.source === 'ai-generated');
+  const items = listItems().filter((item) => item.kind === 'image');
 
-  const groups = new Map<string, number>();
-  for (const item of items) {
-    const model = item.origin?.model ?? 'unknown';
-    groups.set(model, (groups.get(model) ?? 0) + 1);
-  }
-
-  const byModel: UsageModelStat[] = [...groups.entries()]
-    .map(([model, count]) => {
-      const unitPrice = IMAGE_UNIT_PRICE[model];
-      return {
-        model,
-        count,
-        unitPrice,
-        estimatedCost: unitPrice === undefined ? undefined : Number((unitPrice * count).toFixed(2)),
-      };
-    })
-    .sort((a, b) => b.count - a.count);
+  // 没有模型信息可分，统一记成一个 unknown 组，只报张数
+  const byModel: UsageModelStat[] =
+    items.length > 0
+      ? [{ model: 'unknown', count: items.length, unitPrice: undefined, estimatedCost: undefined }]
+      : [];
+  const estimatedCost: number | null = null;
 
   let cachedFiles = 0;
   const cacheDir = path.join(dirs.cache, 'generated');
@@ -47,12 +29,6 @@ export function computeUsage(): UsageStats {
   } catch {
     cachedFiles = 0;
   }
-
-  const pricedGroups = byModel.filter((group) => group.estimatedCost !== undefined);
-  const allPriced = byModel.length > 0 && pricedGroups.length === byModel.length;
-  const estimatedCost = allPriced
-    ? Number(pricedGroups.reduce((sum, group) => sum + (group.estimatedCost ?? 0), 0).toFixed(2))
-    : null;
 
   return {
     knowledgeImages: items.length,

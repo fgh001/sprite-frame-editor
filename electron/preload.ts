@@ -11,7 +11,6 @@ import type {
   SkeletonElfApi,
   SlotKey,
   ThemeMode,
-  UpdateKnowledgeInput,
 } from '../shared/ipc';
 import type { ProviderId } from '../shared/providers';
 
@@ -108,9 +107,19 @@ const api: SkeletonElfApi = {
   knowledge: {
     list: () => ipcRenderer.invoke('kb:list'),
     importFiles: () => ipcRenderer.invoke('kb:importFiles'),
-    update: (input: UpdateKnowledgeInput) => ipcRenderer.invoke('kb:update', input),
     rename: (id: string, name: string) => ipcRenderer.invoke('kb:rename', id, name),
     remove: (id: string) => ipcRenderer.invoke('kb:remove', id),
+    /**
+     * 订阅「素材容器目录被改动」（用户在 data/knowledge/files/images 里
+     * 手动拷入 / 删除 / 改名）。返回取消订阅函数。
+     */
+    onMediaChanged: (handler: () => void) => {
+      const listener = (): void => handler();
+      ipcRenderer.on('kb:mediaChanged', listener);
+      return () => {
+        ipcRenderer.removeListener('kb:mediaChanged', listener);
+      };
+    },
   },
   video: {
     generateLoop: (input: GenerateLoopVideoInput) => ipcRenderer.invoke('video:generateLoop', input),
@@ -134,6 +143,9 @@ const api: SkeletonElfApi = {
     /** 删掉集合里的单个帧文件（找循环帧页手动剔帧用） */
     removeFrame: (id: string, fileName: string) =>
       ipcRenderer.invoke('frames:removeFrame', id, fileName),
+    /** 用编辑器改完的 PNG 覆盖某一帧（素材库里编辑帧集合用） */
+    writeFrame: (id: string, fileName: string, pngBase64: string) =>
+      ipcRenderer.invoke('frames:writeFrame', id, fileName, pngBase64),
     openDir: (id?: string) => ipcRenderer.invoke('frames:openDir', id),
   },
   prompts: {

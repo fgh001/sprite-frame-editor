@@ -1176,6 +1176,48 @@ pre,
   justify-content: flex-end;
 }
 
+/* 帧集合逐帧编辑：弹窗里的帧缩略图（点一下进编辑器） */
+.frame-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+  padding-right: 4px;
+  overflow-y: auto;
+}
+
+.frame-pick {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.frame-pick:hover {
+  border-color: var(--accent);
+}
+
+.frame-pick img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.frame-pick__no {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+}
+
 .studio-item__actions {
   display: flex;
   gap: 6px;
@@ -1224,6 +1266,10 @@ pre,
 }
 
 .modal__head h2 {
+  font-size: 16px;
+}
+
+.modal__head h3 {
   font-size: 16px;
 }
 

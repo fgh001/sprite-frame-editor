@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { nativeImage, shell } from 'electron';
-import type { EditableImage, GeneratedImage, KnowledgeItem, SaveEditedImageInput } from '../../shared/ipc';
+import type { EditableImage, GeneratedImage, SaveEditedImageInput } from '../../shared/ipc';
 import { getDataDirs } from '../core/paths';
-import { addItems, createId, listItems, locateMediaFile } from '../core/knowledge';
+import { createId, locateMediaFile, stableIdOf } from '../core/knowledge';
 import { computeUsage } from '../core/usage';
 import { msg } from '../core/msg';
 
@@ -73,8 +73,6 @@ export function readImageAsDataUrl(absPath: string): EditableImage {
   const image = nativeImage.createFromBuffer(buffer);
   const size = image.isEmpty() ? { width: 0, height: 0 } : image.getSize();
   const fileName = path.basename(resolved);
-  // 生成时记录过的纯色背景色，编辑器用它作为背景初值
-  const recorded = listItems().find((item) => item.fileName === fileName);
   return {
     absPath: resolved,
     fileName,
@@ -82,7 +80,8 @@ export function readImageAsDataUrl(absPath: string): EditableImage {
     width: size.width,
     height: size.height,
     bytes: buffer.length,
-    backgroundColor: recorded?.origin?.backgroundColor ?? '',
+    // 没有索引了，无法记住「生成时用的纯色背景」，编辑器背景初值留空
+    backgroundColor: '',
   };
 }
 
@@ -90,7 +89,8 @@ export function readImageAsDataUrl(absPath: string): EditableImage {
 export function saveEditedImage(input: SaveEditedImageInput): GeneratedImage {
   if (!input || typeof input !== 'object') throw new Error(msg('err.file.badSaveArgs'));
 
-  const sourceAbs = assertInsideData(input.sourceAbsPath);
+  // 仍然校验来源路径在 data 目录内（防止渲染层乱传），但没有索引可记它了
+  assertInsideData(input.sourceAbsPath);
   const base64 = String(input.pngBase64 ?? '').replace(/^data:image\/png;base64,/, '');
   if (!base64) throw new Error(msg('err.file.emptyEdit'));
 
@@ -99,8 +99,9 @@ export function saveEditedImage(input: SaveEditedImageInput): GeneratedImage {
   if (buffer.length > MAX_IMAGE_BYTES) throw new Error(msg('err.file.editTooLarge'));
 
   const dirs = getDataDirs();
-  const id = createId('edit');
-  const fileName = `${id}.png`;
+  // id 由最终文件名派生（素材库以磁盘文件名为准）
+  const fileName = `${createId('edit')}.png`;
+  const id = stableIdOf('image', fileName);
   // 编辑结果一律是图片，进 images 目录
   const absPath = path.join(dirs.knowledgeImages, fileName);
   fs.writeFileSync(absPath, buffer);
@@ -112,26 +113,6 @@ export function saveEditedImage(input: SaveEditedImageInput): GeneratedImage {
   if (thumb.length > 0) {
     fs.writeFileSync(path.join(dirs.knowledgeThumbImages, `${id}.png`), thumb);
   }
-
-  const note = typeof input.note === 'string' ? input.note.slice(0, 200).trim() : '';
-  const knowledgeItem: KnowledgeItem = {
-    id,
-    fileName,
-    kind: 'image',
-    bytes: buffer.length,
-    width: size.width,
-    height: size.height,
-    tags: [],
-    note,
-    source: 'ai-generated',
-    origin: {
-      model: 'edited',
-      prompt: note || msg('err.file.editedFrom', { name: path.basename(sourceAbs) }),
-    },
-    createdAt: new Date().toISOString(),
-    asReference: false,
-  };
-  addItems([knowledgeItem]);
 
   return {
     id,

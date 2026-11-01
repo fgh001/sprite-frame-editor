@@ -119,7 +119,17 @@ function toView(meta: FrameProjectMeta): FrameProjectView {
     ...meta,
     absPath: dir,
     frameFileNames,
-    frameUrls: frameFileNames.map((name) => `kbmedia://frame/${encodeURIComponent(meta.id)}/${encodeURIComponent(name)}`),
+    /* URL 带上每帧的 mtime 做版本号：编辑器改过某一帧后 mtime 变了，
+       URL 随之变化，Chromium 不会命中旧缓存，列表预览才会换成新图。 */
+    frameUrls: frameFileNames.map((name) => {
+      let ver = 0;
+      try {
+        ver = Math.round(fs.statSync(path.join(dir, name)).mtimeMs);
+      } catch {
+        /* 文件刚好被删，退回 0 */
+      }
+      return `kbmedia://frame/${encodeURIComponent(meta.id)}/${encodeURIComponent(name)}?v=${ver}`;
+    }),
     outputs,
   };
 }
@@ -448,6 +458,30 @@ export function renameFrameOutput(name: string, nextName: string): string {
 
   fs.renameSync(from, to);
   return target;
+}
+
+/**
+ * 用编辑器改完的 PNG 覆盖集合里的某一帧（原地替换，不新建文件）。
+ *
+ * 文件名和目录校验与删除一致 —— 避免渲染层传任意路径进来。
+ */
+export function writeFrameFile(id: string, fileName: string, pngBase64: string): void {
+  const dir = projectDirOf(sanitizeFolderName(id));
+  if (!dir.startsWith(getDataDirs().frames)) throw new Error(msg('err.frames.outsideDir'));
+  if (!/^frame_\d+\.png$/i.test(fileName)) throw new Error(msg('err.frames.badFrameName', { name: fileName }));
+  const target = path.join(dir, fileName);
+  if (!target.startsWith(dir) || !fs.existsSync(target)) {
+    throw new Error(msg('err.frames.badFramePath'));
+  }
+
+  const base64 = String(pngBase64 ?? '').replace(/^data:image\/png;base64,/, '');
+  const buffer = Buffer.from(base64, 'base64');
+  if (buffer.length === 0) throw new Error(msg('err.frames.badData'));
+
+  // 先写临时文件再改名：写到一半崩了也不会把原帧毁掉
+  const tmp = `${target}.tmp`;
+  fs.writeFileSync(tmp, buffer);
+  fs.renameSync(tmp, target);
 }
 
 /**

@@ -21,6 +21,20 @@ export function notifyDataChanged(): void {
   window.dispatchEvent(new Event(EVENT));
 }
 
+/**
+ * 把「主进程发现素材目录被改动」桥接到上面的统一事件。
+ *
+ * 用户在资源管理器里往 data/knowledge/files/images 拷文件、删文件、改名时，
+ * 主进程的 fs.watch 会推 kb:mediaChanged 过来，这里转成一次 notifyDataChanged，
+ * 所有订阅了 useDataRefresh 的页面就自动重新读盘了。
+ * 只在 App 挂载时调用一次。
+ */
+export function bridgeMainMediaEvents(): () => void {
+  return window.skeletonElf.knowledge.onMediaChanged(() => {
+    notifyDataChanged();
+  });
+}
+
 /** 订阅数据变更。handler 每次渲染都会更新，但监听只注册一次 */
 export function useDataRefresh(handler: () => void): void {
   const handlerRef = useRef(handler);

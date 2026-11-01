@@ -9,10 +9,8 @@ import type {
   IpcResult,
   KnowledgeItem,
   KnowledgeView,
-  UpdateKnowledgeInput,
 } from '../../shared/ipc';
 import {
-  addItems,
   createId,
   listItems,
   locateMediaFile,
@@ -21,9 +19,11 @@ import {
   removeItem,
   resolveItemPath,
   resolveThumbPath,
+  stableIdOf,
   thumbDirOf,
   thumbFileNameOf,
 } from '../core/knowledge';
+import { getDataDirs } from '../core/paths';
 import { resolveFrameUrl } from './frames';
 import { msg } from '../core/msg';
 
@@ -197,11 +197,32 @@ export function migrateThumbnailsToPng(): void {
   }
 }
 
+/**
+ * 补缩略图：手动拷进目录的文件、以及被改名的文件都没有对应缩略图，
+ * 不补的话列表里是破图。只在缺图时才解码，已有直接跳过。
+ */
+function ensureThumb(item: KnowledgeItem): void {
+  if (item.kind !== 'image') return;
+  const thumbPath = resolveThumbPath(item, `${item.id}.png`);
+  if (fs.existsSync(thumbPath)) return;
+  const source = resolveItemPath(item);
+  if (!fs.existsSync(source)) return;
+  try {
+    const thumb = makeThumb(fs.readFileSync(source));
+    if (thumb.length > 0) fs.writeFileSync(thumbPath, thumb);
+  } catch {
+    /* 单张失败不影响其他条目（界面会退回显示原图） */
+  }
+}
+
 export function listKnowledge(): KnowledgeView[] {
   return listItems()
     .slice()
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map(toView);
+    .map((item) => {
+      ensureThumb(item);
+      return toView(item);
+    });
 }
 
 function makeThumb(buffer: Buffer): Buffer {
@@ -244,11 +265,9 @@ export async function importKnowledgeFiles(): Promise<ImportResult> {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const knownHashes = new Set(
-    listItems()
-      .map((item) => item.hash)
-      .filter((hash): hash is string => typeof hash === 'string' && hash.length > 0),
-  );
+  /* 没有索引了，无法知道「历史上导入过的文件」的内容指纹（每次全量算哈希太慢），
+     所以去重只在本次导入的这批文件之间生效。 */
+  const knownHashes = new Set<string>();
 
   const created: KnowledgeItem[] = [];
   let skippedDuplicates = 0;
@@ -277,8 +296,8 @@ export async function importKnowledgeFiles(): Promise<ImportResult> {
       }
       knownHashes.add(hash);
 
-      const id = createId('kb');
-      const fileName = `${id}${ext}`;
+      const fileName = `${createId('kb')}${ext}`;
+      const id = stableIdOf(kind, fileName);
       fs.writeFileSync(path.join(mediaDirOf(kind), fileName), buffer);
 
       let width: number | undefined;
@@ -303,21 +322,12 @@ export async function importKnowledgeFiles(): Promise<ImportResult> {
         bytes: stat.size,
         width,
         height,
-        tags: [],
-        note: '',
-        source: 'import',
         createdAt: new Date().toISOString(),
-        asReference: false,
-        hash,
-        // 只记录来源路径用于展示；删除时绝不会去碰这个位置
-        importedFrom: file,
       });
     } catch {
       skippedUnsupported += 1;
     }
   }
-
-  if (created.length > 0) addItems(created);
 
   return {
     imported: created.length,
@@ -327,31 +337,8 @@ export async function importKnowledgeFiles(): Promise<ImportResult> {
   };
 }
 
-export function updateKnowledge(input: UpdateKnowledgeInput): KnowledgeView {
-  const existing = listItems();
-  const target = existing.find((item) => item.id === input.id);
-  if (!target) throw new Error(msg('err.kb.missing'));
-
-  const updated: KnowledgeItem = {
-    ...target,
-    tags: Array.isArray(input.tags)
-      ? input.tags
-          .map((tag) => String(tag).trim())
-          .filter((tag) => tag.length > 0)
-          .slice(0, 30)
-      : target.tags,
-    note: typeof input.note === 'string' ? input.note.slice(0, 500) : target.note,
-    asReference: typeof input.asReference === 'boolean' ? input.asReference : target.asReference,
-  };
-
-  // 索引层没有单独的 update：先摘掉旧记录再插回，文件保持不动
-  removeItem(input.id, false);
-  addItems([updated]);
-  return toView(updated);
-}
-
 export function removeKnowledge(id: string): void {
-  if (!removeItem(id, true)) throw new Error(msg('err.kb.missing'));
+  if (!removeItem(id)) throw new Error(msg('err.kb.missing'));
 }
 
 /**
@@ -396,14 +383,59 @@ export function renameKnowledge(id: string, nextName: string): KnowledgeView {
 
   fs.renameSync(source, dest);
 
-  const updated: KnowledgeItem = { ...target, fileName: safe };
-  removeItem(id, false);
-  addItems([updated]);
-  return toView(updated);
+  /* 缩略图按 id 命名，而 id 由文件名派生 —— 改名后旧缩略图失配，
+     这里顺手删掉，新缩略图会在下次列目录时由 ensureThumb 重建。 */
+  try {
+    fs.rmSync(resolveThumbPath(target, `${target.id}.png`), { force: true });
+  } catch {
+    /* 删不掉就留着，只是占一点空间 */
+  }
+
+  return toView({
+    ...target,
+    id: stableIdOf(target.kind, safe),
+    fileName: safe,
+  });
 }
 
 function toError(err: unknown): IpcErr {
   return { ok: false, error: err instanceof Error ? err.message : String(err) };
+}
+
+/**
+ * 监听素材容器目录（data/knowledge/files/images、files/videos）。
+ *
+ * 用户会在资源管理器里直接往这两个目录拷文件、删文件、改名 —— 界面必须跟着变，
+ * 不能等他手动点「刷新」。这里用 fs.watch 监听，200ms 防抖后广播给所有窗口；
+ * 渲染层收到后走统一的数据刷新事件重新读盘。
+ */
+export function startMediaWatcher(): void {
+  const dirs = getDataDirs();
+  const targets = [dirs.knowledgeImages, dirs.knowledgeVideos];
+
+  let timer: NodeJS.Timeout | null = null;
+  const broadcast = (): void => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('kb:mediaChanged');
+      }
+    }, 200);
+  };
+
+  for (const dir of targets) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      // recursive: false —— 这两个目录是平铺的，不看子目录，开销最小
+      const watcher = fs.watch(dir, { persistent: false }, broadcast);
+      watcher.on('error', () => {
+        /* 目录被删或权限变化时静默忽略，用户重开应用会重新监听 */
+      });
+    } catch {
+      /* 单个目录监听失败不影响另一个 */
+    }
+  }
 }
 
 export function registerKnowledgeIpc(): void {
@@ -418,25 +450,6 @@ export function registerKnowledgeIpc(): void {
   ipcMain.handle('kb:importFiles', async (): Promise<IpcResult<ImportResult>> => {
     try {
       return { ok: true, data: await importKnowledgeFiles() };
-    } catch (err) {
-      return toError(err);
-    }
-  });
-
-  ipcMain.handle('kb:update', async (_event, raw: unknown): Promise<IpcResult<KnowledgeView>> => {
-    try {
-      if (!raw || typeof raw !== 'object') throw new Error(msg('err.kb.badArgs'));
-      const input = raw as Partial<UpdateKnowledgeInput>;
-      if (typeof input.id !== 'string' || !input.id) throw new Error(msg('err.kb.noId'));
-      return {
-        ok: true,
-        data: updateKnowledge({
-          id: input.id,
-          tags: Array.isArray(input.tags) ? input.tags.map(String) : undefined,
-          note: typeof input.note === 'string' ? input.note : undefined,
-          asReference: typeof input.asReference === 'boolean' ? input.asReference : undefined,
-        }),
-      };
     } catch (err) {
       return toError(err);
     }

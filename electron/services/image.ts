@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { nativeImage } from 'electron';
-import type { GenerateImageInput, GenerateImageResult, GeneratedImage, KnowledgeItem } from '../../shared/ipc';
+import type { GenerateImageInput, GenerateImageResult, GeneratedImage } from '../../shared/ipc';
 import { buildBackgroundPrompt, estimateImageCost } from '../../shared/pricing';
 import { getDataDirs } from '../core/paths';
-import { addItems, createId } from '../core/knowledge';
+import { createId, stableIdOf } from '../core/knowledge';
 import { getSlotRuntime, type SlotRuntime } from '../core/settings';
 import { msg } from '../core/msg';
 
@@ -225,14 +225,14 @@ export async function generateImages(input: GenerateImageInput): Promise<Generat
   fs.mkdirSync(thumbDir, { recursive: true });
 
   const images: GeneratedImage[] = [];
-  const knowledgeItems: KnowledgeItem[] = [];
 
   for (const item of rawItems) {
     const buffer = await toImageBuffer(item);
     if (buffer.length === 0) continue;
 
-    const id = createId('gen');
-    const fileName = `${id}${detectExtension(buffer)}`;
+    // id 由最终文件名派生（素材库以磁盘文件名为准，见 core/knowledge.ts stableIdOf）
+    const fileName = `${createId('gen')}${detectExtension(buffer)}`;
+    const id = stableIdOf('image', fileName);
     const absPath = path.join(targetDir, fileName);
     fs.writeFileSync(absPath, buffer);
 
@@ -256,31 +256,9 @@ export async function generateImages(input: GenerateImageInput): Promise<Generat
       backgroundColor: background,
     });
 
-    if (input.saveToKnowledge) {
-      knowledgeItems.push({
-        id,
-        fileName,
-        kind: 'image',
-        bytes: buffer.length,
-        width: size.width,
-        height: size.height,
-        tags: [],
-        note: '',
-        source: 'ai-generated',
-        origin: {
-          providerId: runtime.providerId,
-          model: runtime.model,
-          prompt,
-          backgroundColor: background,
-        },
-        createdAt: new Date().toISOString(),
-        asReference: false,
-      });
-    }
   }
 
   if (images.length === 0) throw new Error(msg('err.image.emptyResult'));
-  if (knowledgeItems.length > 0) addItems(knowledgeItems);
 
   return {
     providerId: runtime.providerId,

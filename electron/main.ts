@@ -14,6 +14,7 @@ import {
   registerKnowledgeIpc,
   registerKnowledgeProtocol,
   registerKnowledgeScheme,
+  startMediaWatcher,
 } from './ipc/knowledge';
 import { registerSettingsIpc } from './ipc/settings';
 import { registerUiIpc } from './ipc/ui';
@@ -108,6 +109,9 @@ if (!hasSingleInstanceLock) {
     // 旧版混放的素材迁到 files/images、files/videos 子目录（幂等）
     const migration = migrateToKindFolders();
     if (migration.moved > 0) console.log(`[knowledge] 已迁移 ${migration.moved} 个文件到分类型目录`);
+    /* 监听素材容器目录：用户直接在资源管理器里往 files/images、files/videos
+       拷入/删除/改名文件时，广播给界面让它自动刷新。 */
+    startMediaWatcher();
     // 旧版 JPEG 缩略图重建为 PNG（JPEG 无透明通道，去背景后会显示黑底）
     migrateThumbnailsToPng();
     // 旧版帧目录平铺在 frames/ 下，迁到 sources/（抽帧集合）和 outputs/（抠图结果）

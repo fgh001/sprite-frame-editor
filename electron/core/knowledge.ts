@@ -1,20 +1,19 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { KnowledgeItem } from '../../shared/ipc';
 import { getDataDirs } from './paths';
 
-interface KnowledgeIndex {
-  version: number;
-  items: KnowledgeItem[];
-}
-
-const INDEX_VERSION = 1;
-
-let cached: KnowledgeIndex | null = null;
-
-export function getIndexFilePath(): string {
-  return path.join(getDataDirs().knowledge, 'index.json');
-}
+/**
+ * 素材库 = **磁盘目录的镜像**，没有任何索引文件。
+ *
+ * 设计取舍（按要求）：
+ *   - 用户会在资源管理器里直接往 data/knowledge/files/images、files/videos
+ *     拷文件、删文件、改名，所以列表必须每次从磁盘现扫；
+ *   - 条目 id 由「kind + 文件名」派生，改名后自动得到新 id，不会和旧记录串味；
+ *   - 不保存标签 / 备注 / 生成来源 —— 那些都要靠一个额外的索引文件维护，
+ *     文件一旦被手动改名就对不上，维护成本大于收益。
+ */
 
 /** 素材库按类型分目录：图片与视频物理分开，绝不混放 */
 export function mediaDirOf(kind: KnowledgeItem['kind']): string {
@@ -42,69 +41,93 @@ export function thumbFileNameOf(item: KnowledgeItem): string {
   return `${item.id}.png`;
 }
 
-function normalizeIndex(parsed: unknown): KnowledgeIndex {
-  if (!parsed || typeof parsed !== 'object') return { version: INDEX_VERSION, items: [] };
-  const raw = parsed as Partial<KnowledgeIndex>;
-  const items = Array.isArray(raw.items) ? raw.items : [];
-  return {
-    version: INDEX_VERSION,
-    items: items.filter((item): item is KnowledgeItem => Boolean(item) && typeof item.id === 'string' && typeof item.fileName === 'string'),
-  };
+/** 素材库认的扩展名 */
+export const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
+export const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.mkv', '.avi']);
+
+/**
+ * 条目 id 由「kind + 文件名」派生。
+ * 文件在磁盘上被改名后，下一轮扫描自然得到新 id，缩略图随之重建。
+ */
+export function stableIdOf(kind: KnowledgeItem['kind'], fileName: string): string {
+  return crypto.createHash('sha1').update(`${kind}:${fileName}`).digest('hex').slice(0, 12);
 }
 
-export function loadIndex(): KnowledgeIndex {
-  if (cached) return cached;
+interface ScannedFile {
+  fileName: string;
+  bytes: number;
+  modifiedAt: Date;
+}
+
+function scanDir(dir: string, exts: Set<string>): ScannedFile[] {
+  let entries: string[];
   try {
-    cached = normalizeIndex(JSON.parse(fs.readFileSync(getIndexFilePath(), 'utf8')));
+    entries = fs.readdirSync(dir);
   } catch {
-    cached = { version: INDEX_VERSION, items: [] };
+    return []; // 目录还不存在
   }
-  return cached;
-}
-
-function persist(index: KnowledgeIndex): void {
-  const file = getIndexFilePath();
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.tmp`;
-  // 原子写：先写临时文件再改名，避免索引写坏导致素材“丢失”
-  fs.writeFileSync(tmp, `${JSON.stringify(index, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, file);
-}
-
-export function listItems(): KnowledgeItem[] {
-  return loadIndex().items;
-}
-
-export function addItems(items: KnowledgeItem[]): void {
-  if (items.length === 0) return;
-  const index = loadIndex();
-  const next: KnowledgeIndex = { version: INDEX_VERSION, items: [...items, ...index.items] };
-  persist(next);
-  cached = next;
-}
-
-export function removeItem(id: string, deleteFiles: boolean): boolean {
-  const index = loadIndex();
-  const target = index.items.find((item) => item.id === id);
-  if (!target) return false;
-
-  if (deleteFiles) {
-    for (const file of [resolveItemPath(target), resolveThumbPath(target)]) {
-      try {
-        fs.rmSync(file, { force: true });
-      } catch {
-        /* 文件已不存在时忽略 */
-      }
+  const files: ScannedFile[] = [];
+  for (const fileName of entries) {
+    if (!exts.has(path.extname(fileName).toLowerCase())) continue;
+    try {
+      const stat = fs.statSync(path.join(dir, fileName));
+      if (!stat.isFile()) continue;
+      files.push({ fileName, bytes: stat.size, modifiedAt: stat.mtime });
+    } catch {
+      /* 读不到（被占用 / 没权限）就跳过这一张，不影响其他文件 */
     }
   }
+  return files;
+}
 
-  const next: KnowledgeIndex = { version: INDEX_VERSION, items: index.items.filter((item) => item.id !== id) };
-  persist(next);
-  cached = next;
+function mediaTargets(): { kind: KnowledgeItem['kind']; dir: string; exts: Set<string> }[] {
+  const dirs = getDataDirs();
+  return [
+    { kind: 'image', dir: dirs.knowledgeImages, exts: IMAGE_EXTS },
+    { kind: 'video', dir: dirs.knowledgeVideos, exts: VIDEO_EXTS },
+  ];
+}
+
+/**
+ * 列出素材库：目录里有什么就返回什么。
+ * 创建时间取文件修改时间（没有索引可记原始创建时间）。
+ */
+export function listItems(): KnowledgeItem[] {
+  const items: KnowledgeItem[] = [];
+  for (const target of mediaTargets()) {
+    for (const file of scanDir(target.dir, target.exts)) {
+      items.push({
+        id: stableIdOf(target.kind, file.fileName),
+        fileName: file.fileName,
+        kind: target.kind,
+        bytes: file.bytes,
+        createdAt: file.modifiedAt.toISOString(),
+      });
+    }
+  }
+  return items;
+}
+
+/** 按 id（= 文件名派生）找条目；找不到返回 null */
+export function findItem(id: string): KnowledgeItem | null {
+  return listItems().find((item) => item.id === id) ?? null;
+}
+
+/** 删除素材：删掉原文件与缩略图。返回是否真的删到了 */
+export function removeItem(id: string): boolean {
+  const target = findItem(id);
+  if (!target) return false;
+  for (const file of [resolveItemPath(target), resolveThumbPath(target)]) {
+    try {
+      fs.rmSync(file, { force: true });
+    } catch {
+      /* 文件已不存在或被占用时忽略 */
+    }
+  }
   return true;
 }
 
-/** 生成唯一 id */
+/** 生成唯一 id（给新文件名用） */
 export function createId(prefix: string): string {
   const stamp = new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
   const rand = Math.random().toString(36).slice(2, 7);
@@ -113,40 +136,39 @@ export function createId(prefix: string): string {
 
 /**
  * 把旧版混放（files/ 与 thumbs/ 根目录）的素材迁到 images/ 与 videos/ 子目录。
- * 幂等：找不到旧文件就跳过，可以每次启动都跑。
+ *
+ * 旧版靠 index.json 记录文件名，现在没有索引，所以直接扫旧根目录里的文件，
+ * 按扩展名判定类型后搬走。幂等：已存在的目标文件跳过。
  */
 export function migrateToKindFolders(): { moved: number } {
   const dirs = getDataDirs();
-  const index = loadIndex();
   let moved = 0;
 
-  for (const item of index.items) {
-    // 原文件
-    const legacyFile = path.join(dirs.knowledgeFiles, item.fileName);
-    const targetFile = resolveItemPath(item);
-    if (fs.existsSync(legacyFile) && !fs.existsSync(targetFile)) {
+  const moveAll = (from: string, to: string, exts: Set<string>): void => {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(from);
+    } catch {
+      return;
+    }
+    for (const fileName of entries) {
+      if (!exts.has(path.extname(fileName).toLowerCase())) continue;
+      const dest = path.join(to, fileName);
+      if (fs.existsSync(dest)) continue;
       try {
-        fs.renameSync(legacyFile, targetFile);
+        fs.renameSync(path.join(from, fileName), dest);
         moved += 1;
       } catch {
         /* 跨盘或占用时忽略，下次再试 */
       }
     }
+  };
 
-    // 缩略图（.png 优先，兼容旧的 .jpg）
-    for (const ext of ['png', 'jpg']) {
-      const legacyThumb = path.join(dirs.knowledgeThumbs, `${item.id}.${ext}`);
-      const targetThumb = resolveThumbPath(item, `${item.id}.${ext}`);
-      if (fs.existsSync(legacyThumb) && !fs.existsSync(targetThumb)) {
-        try {
-          fs.renameSync(legacyThumb, targetThumb);
-          moved += 1;
-        } catch {
-          /* 同上 */
-        }
-      }
-    }
-  }
+  // 旧素材根目录：图片进 images、视频进 videos
+  moveAll(dirs.knowledgeFiles, dirs.knowledgeImages, IMAGE_EXTS);
+  moveAll(dirs.knowledgeFiles, dirs.knowledgeVideos, VIDEO_EXTS);
+  // 旧缩略图根目录：缩略图按 id 命名，看不出原素材类型，统一放 images
+  moveAll(dirs.knowledgeThumbs, dirs.knowledgeThumbImages, new Set(['.png', '.jpg']));
 
   return { moved };
 }

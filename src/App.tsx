@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppInfo, ThemeMode } from '@shared/ipc';
 import { Sidebar, type NavKey } from './components/Sidebar';
 import { AssistantPanel } from './components/AssistantPanel';
+import { bridgeMainMediaEvents } from './state/refresh';
 import { PipelinePage } from './pages/PipelinePage';
 import { ImageStudioPage } from './pages/ImageStudioPage';
 import { VideoStudioPage } from './pages/VideoStudioPage';
@@ -117,7 +118,9 @@ export function App(): React.JSX.Element {
     })();
   }, []);
 
-  // 启动时应用保存过的界面语言
+  /* 主进程在监听素材容器目录；把它的变更事件接到统一刷新通道，
+     这样用户在资源管理器里增删改名素材文件时，界面会自动更新。 */
+  useEffect(() => bridgeMainMediaEvents(), []);
   useEffect(() => {
     void (async () => {
       const result = await window.skeletonElf.ui.getLang();

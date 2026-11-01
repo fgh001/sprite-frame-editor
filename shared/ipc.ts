@@ -335,14 +335,12 @@ export interface AiMattingResult {
 
 export type KnowledgeKind = 'image' | 'video';
 
-export interface KnowledgeOrigin {
-  providerId?: string;
-  model?: string;
-  prompt?: string;
-  /** 生成时使用的纯色背景色 */
-  backgroundColor?: string;
-}
-
+/**
+ * 素材库条目：**完全由磁盘文件推导**，没有任何索引/元数据。
+ *
+ * 文件名就是身份 —— 用户可以在资源管理器里自由增删改名，界面跟着变。
+ * 代价：标签、备注、生成来源都不保存（这些需要额外的索引文件，已按要求移除）。
+ */
 export interface KnowledgeItem {
   id: string;
   fileName: string;
@@ -351,24 +349,14 @@ export interface KnowledgeItem {
   width?: number;
   height?: number;
   durationMs?: number;
-  tags: string[];
-  note: string;
-  source: 'import' | 'ai-generated';
-  origin?: KnowledgeOrigin;
   createdAt: string;
-  /** 是否标记为 AI 生成时的参考素材 */
-  asReference: boolean;
-  /** 导入时的内容指纹（sha256 前 16 位），用于去重 */
-  hash?: string;
-  /** 导入来源的原始路径，仅用于界面展示「原文件在哪」，不参与删除 */
-  importedFrom?: string;
 }
 
 /** 供界面直接渲染的素材库条目（带 kbmedia 协议的预览地址） */
 export interface KnowledgeView extends KnowledgeItem {
   /** 原图/原视频预览地址（kbmedia://file/<fileName>） */
   mediaUrl: string;
-  /** 缩略图地址（kbmedia://thumb/<id>.jpg），没有缩略图时为空串 */
+  /** 缩略图地址（kbmedia://thumb/<id>.png），没有缩略图时为空串 */
   thumbUrl: string;
   /** 原文件绝对路径，用于定位/编辑 */
   absPath: string;
@@ -379,13 +367,6 @@ export interface ImportResult {
   skippedDuplicates: number;
   skippedUnsupported: number;
   items: KnowledgeView[];
-}
-
-export interface UpdateKnowledgeInput {
-  id: string;
-  tags?: string[];
-  note?: string;
-  asReference?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -630,12 +611,16 @@ export interface SkeletonElfApi {
     list(): Promise<IpcResult<KnowledgeView[]>>;
     /** 弹文件选择框，把图片/视频导入素材库（内容去重） */
     importFiles(): Promise<IpcResult<ImportResult>>;
-    /** 修改标签 / 备注 / 参考标记 */
-    update(input: UpdateKnowledgeInput): Promise<IpcResult<KnowledgeView>>;
     /** 重命名素材文件（改磁盘文件名；重名报错，不覆盖） */
     rename(id: string, name: string): Promise<IpcResult<KnowledgeView>>;
     /** 从素材库删除（同时删掉原文件与缩略图） */
     remove(id: string): Promise<IpcResult<null>>;
+    /**
+     * 订阅素材容器目录的变化：用户直接在 data/knowledge/files/images、
+     * files/videos 里拷入 / 删除 / 改名文件时触发，界面据此自动刷新。
+     * 返回取消订阅函数。
+     */
+    onMediaChanged(handler: () => void): () => void;
   };
   frames: {
     /** 列出全部帧动画项目（data/frames/sources 下每个文件夹一个项目） */
@@ -652,6 +637,11 @@ export interface SkeletonElfApi {
     remove(id: string): Promise<IpcResult<null>>;
     /** 删掉集合里的某一帧（找循环帧后手动剔多余帧用） */
     removeFrame(id: string, fileName: string): Promise<IpcResult<{ frameCount: number }>>;
+    /**
+     * 用编辑器改完的单帧 PNG 覆盖磁盘上的这一帧。
+     * 只允许写 data/frames/sources/<集合>/frame_XXX.png，不会碰其他位置。
+     */
+    writeFrame(id: string, fileName: string, pngBase64: string): Promise<IpcResult<null>>;
     /** 在资源管理器中打开帧动画项目目录 */
     openDir(id?: string): Promise<IpcResult<null>>;
   };
