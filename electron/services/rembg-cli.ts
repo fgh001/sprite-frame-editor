@@ -323,6 +323,17 @@ export async function removeBackgroundBatch(
   }
   if (!fs.existsSync(inDir)) throw new Error(t9n('err.rembg.inputDirMissing', { dir: inDir }));
   fs.mkdirSync(outDir, { recursive: true });
+  /* 清掉上一轮的输出帧。源集合被裁短后重新抠图，旧的多余帧会留在目录里，
+     导致「显示抠了 2 帧，目录里却有 8 个文件」这种对不上的情况。
+     只删 frame_*.png/jpg，别的东西（用户自己放的）不动。 */
+  for (const entry of fs.readdirSync(outDir)) {
+    if (!/^frame_\d+\.(png|jpe?g)$/i.test(entry)) continue;
+    try {
+      fs.unlinkSync(path.join(outDir, entry));
+    } catch {
+      /* 被预览/播放器占用就先留着，新帧同名会覆盖写 */
+    }
+  }
 
   const args = [
     path.join(projectRoot(), 'scripts', 'rembg_cli.py'),
