@@ -9,6 +9,7 @@ import type {
 import { addItems, createId } from '../core/knowledge';
 import { getDataDirs } from '../core/paths';
 import { getSlotRuntime } from '../core/settings';
+import { msg } from '../core/msg';
 
 const POLL_INTERVAL_MS = 3_000;
 const MAX_WAIT_MS = 20 * 60 * 1000;
@@ -24,12 +25,12 @@ const EXT_MIME: Record<string, string> = {
 };
 
 function assertInsideData(target: unknown): string {
-  if (typeof target !== 'string' || !target.trim()) throw new Error('图片路径无效');
+  if (typeof target !== 'string' || !target.trim()) throw new Error(msg('err.video.badImagePath'));
   const root = getDataDirs().root;
   const resolved = path.resolve(target);
   const rel = path.relative(root, resolved);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error('不允许访问数据目录以外的文件');
+    throw new Error(msg('err.video.outsideData'));
   }
   return resolved;
 }
@@ -54,17 +55,23 @@ async function describeHttpError(res: Response): Promise<string> {
   // 方舟「模型未开通」会以 404 + ModelNotOpen 返回，单独识别，避免误导成「接口地址错」
   const notOpen = /ModelNotOpen|has not activated|未开通/i.test(detail);
   const hint = notOpen
-    ? '（该账号还没开通这个视频模型：去方舟控制台「开通管理」开通 Seedance；注意 2.5 要求账户余额 ≥ 200 元）'
+    ? msg('err.video.hintNotOpen')
     : res.status === 401
-      ? '（API Key 无效或未开通该模型）'
+      ? msg('err.video.hint401')
       : res.status === 403
-        ? '（没有权限，检查视频模型是否已在控制台开通）'
+        ? msg('err.video.hint403')
         : res.status === 404
-          ? '（接口地址不存在，检查 Base URL）'
+          ? msg('err.video.hint404')
           : res.status === 429
-            ? '（触发限流，稍后再试）'
+            ? msg('err.video.hint429')
             : '';
-  return `HTTP ${res.status} ${res.statusText}${hint}${detail ? `：${String(detail).slice(0, 300)}` : ''}`;
+  const detailPart = detail ? msg('err.video.httpDetail', { detail: String(detail).slice(0, 300) }) : '';
+  return msg('err.video.http', {
+    status: String(res.status),
+    statusText: res.statusText,
+    hint,
+    detail: detailPart,
+  });
 }
 
 async function requestJson(
@@ -86,13 +93,13 @@ async function requestJson(
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`请求 ${url} 失败：${reason}（检查网络 / 代理 / VPN，或 Base URL）`);
+    throw new Error(msg('err.video.requestFailed', { url, reason }));
   }
   if (!response.ok) throw new Error(await describeHttpError(response));
   try {
     return (await response.json()) as Record<string, unknown>;
   } catch {
-    throw new Error(`接口 ${url} 返回的不是合法 JSON`);
+    throw new Error(msg('err.video.badJson', { url }));
   }
 }
 
@@ -102,9 +109,9 @@ async function downloadVideo(url: string): Promise<Buffer> {
     response = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`下载视频失败：${reason}`);
+    throw new Error(msg('err.video.downloadFailed', { reason }));
   }
-  if (!response.ok) throw new Error(`下载视频失败：HTTP ${response.status}`);
+  if (!response.ok) throw new Error(msg('err.video.downloadHttp', { status: String(response.status) }));
   return Buffer.from(await response.arrayBuffer());
 }
 
@@ -118,14 +125,14 @@ export async function generateLoopVideo(
   onProgress: (progress: LoopVideoProgress) => void,
 ): Promise<GenerateLoopVideoResult> {
   const runtime = await getSlotRuntime('video');
-  if (!runtime.baseUrl) throw new Error('视频槽位还没有配置 Base URL');
-  if (!runtime.model) throw new Error('视频槽位还没有配置模型');
-  if (!runtime.apiKey) throw new Error('视频槽位还没有填写 API Key，请到「模型设置 → 视频生成」里保存');
+  if (!runtime.baseUrl) throw new Error(msg('err.video.noBaseUrl'));
+  if (!runtime.model) throw new Error(msg('err.video.noModel'));
+  if (!runtime.apiKey) throw new Error(msg('err.video.noKey'));
 
   const imagePath = assertInsideData(input.imageAbsPath);
   const buffer = fs.readFileSync(imagePath);
-  if (buffer.length === 0) throw new Error('图片内容为空');
-  if (buffer.length > MAX_IMAGE_BYTES) throw new Error('图片过大（上限 20MB），请先缩尺寸');
+  if (buffer.length === 0) throw new Error(msg('err.video.emptyImage'));
+  if (buffer.length > MAX_IMAGE_BYTES) throw new Error(msg('err.video.imageTooLarge'));
   const mime = EXT_MIME[path.extname(imagePath).toLowerCase()] ?? 'image/png';
   const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
 
@@ -134,18 +141,13 @@ export async function generateLoopVideo(
   const mode = input.mode === 'reference' ? 'reference' : 'direct';
 
   // 组装提示词：用户描述 + 背景锁定 + 参考素材约束
-  const basePrompt =
-    (input.prompt || '').trim() || '角色轻微呼吸、衣摆与发丝自然摆动，镜头固定，动作首尾衔接无缝循环';
+  const basePrompt = (input.prompt || '').trim() || msg('prompt.video.default');
   const constraints: string[] = [];
   if (input.lockBackground !== false) {
-    constraints.push(
-      '【背景要求】严格保持原图的纯色背景不变：颜色、亮度、平整度都不得变化；禁止新增地面、道具、光斑、烟雾、阴影或渐变，禁止更换场景或改变画面构图。',
-    );
+    constraints.push(msg('prompt.video.bg'));
   }
   if (mode === 'reference') {
-    constraints.push(
-      '【参考要求】参考素材仅用于参考动作节奏与姿态变化；不要复制参考素材里的角色外观、服装、配色或画风，保持原图美术风格不变。',
-    );
+    constraints.push(msg('prompt.video.ref'));
   }
   const prompt = [basePrompt, ...constraints].join('\n');
 
@@ -154,12 +156,12 @@ export async function generateLoopVideo(
 
   if (mode === 'reference') {
     const refs = (input.referenceImagePaths ?? []).slice(0, 4);
-    if (refs.length === 0) throw new Error('参考模式下至少要选 1 张参考图');
+    if (refs.length === 0) throw new Error(msg('err.video.needRef'));
     for (const refPath of refs) {
       const abs = assertInsideData(refPath);
       const refBuffer = fs.readFileSync(abs);
       if (refBuffer.length === 0) continue;
-      if (refBuffer.length > MAX_IMAGE_BYTES) throw new Error('参考图过大（上限 20MB）');
+      if (refBuffer.length > MAX_IMAGE_BYTES) throw new Error(msg('err.video.refTooLarge'));
       const refMime = EXT_MIME[path.extname(abs).toLowerCase()] ?? 'image/png';
       content.push({
         type: 'image_url',
@@ -173,7 +175,7 @@ export async function generateLoopVideo(
     content.push({ type: 'image_url', image_url: { url: dataUrl }, role: 'last_frame' });
   }
 
-  onProgress({ stage: 'submitting', message: '正在提交生成任务…' });
+  onProgress({ stage: 'submitting', message: msg('err.video.submitting') });
   const endpoint = joinUrl(runtime.baseUrl, 'contents/generations/tasks');
   const created = await requestJson(endpoint, runtime.apiKey, {
     method: 'POST',
@@ -188,7 +190,7 @@ export async function generateLoopVideo(
   });
 
   const taskId = typeof created.id === 'string' ? created.id : '';
-  if (!taskId) throw new Error('服务商没有返回任务 id');
+  if (!taskId) throw new Error(msg('err.video.noTaskId'));
 
   const startedAt = Date.now();
   let videoUrl = '';
@@ -209,30 +211,35 @@ export async function generateLoopVideo(
     }
     if (status === 'failed') {
       const error = info.error as { message?: string } | undefined;
-      throw new Error(`生成失败：${error?.message ?? '服务商未说明原因'}`);
+      throw new Error(
+        msg('err.video.genFailed', { reason: error?.message ?? msg('err.video.noReason') }),
+      );
     }
     if (status === 'cancelled' || status === 'expired') {
-      throw new Error(`任务已${status === 'cancelled' ? '取消' : '过期'}`);
+      throw new Error(msg(status === 'cancelled' ? 'err.video.cancelled' : 'err.video.expired'));
     }
 
     const elapsed = Date.now() - startedAt;
-    const message = status === 'queued' ? '排队中…' : '生成中…';
+    const message = msg(status === 'queued' ? 'err.video.queued' : 'err.video.generating');
     if (message !== lastMessage || elapsed % 15_000 < POLL_INTERVAL_MS) {
       lastMessage = message;
       onProgress({
         stage: status === 'queued' ? 'queued' : 'running',
-        message: `${message}（已等待 ${Math.round(elapsed / 1000)} 秒）`,
+        message: msg('err.video.waiting', {
+          message,
+          seconds: String(Math.round(elapsed / 1000)),
+        }),
         taskId,
         percent: Math.min(90, Math.round((elapsed / 600_000) * 100)),
       });
     }
   }
 
-  if (!videoUrl) throw new Error('等待超时（20 分钟）：任务可能仍在服务商侧排队，稍后可重试');
+  if (!videoUrl) throw new Error(msg('err.video.timeout'));
 
-  onProgress({ stage: 'downloading', message: '正在下载视频…', taskId, percent: 95 });
+  onProgress({ stage: 'downloading', message: msg('err.video.downloading'), taskId, percent: 95 });
   const videoBuffer = await downloadVideo(videoUrl);
-  if (videoBuffer.length === 0) throw new Error('下载到的视频为空');
+  if (videoBuffer.length === 0) throw new Error(msg('err.video.emptyDownload'));
 
   const dirs = getDataDirs();
   const id = createId('video');
@@ -256,7 +263,7 @@ export async function generateLoopVideo(
   };
   addItems([item]);
 
-  onProgress({ stage: 'done', message: '生成完成，已存入素材库', taskId, percent: 100 });
+  onProgress({ stage: 'done', message: msg('err.video.done'), taskId, percent: 100 });
 
   return {
     taskId,

@@ -10,15 +10,13 @@ import { BACKGROUND_PRESETS, pickAutoBackground, unitPriceOf } from '@shared/pri
 import { getProviderPreset } from '@shared/providers';
 import { ImageEditorModal } from '../components/ImageEditorModal';
 import { setBusy, tryStart } from '../state/busy';
+import { t, useLang } from '../i18n';
 
 // 豆包 Seedream 5.x 用档位（1K/2K）或像素值；像素需落在 921600–4624220 之间
 const SIZES = ['2K', '1K', '1.5K', '2048x1024', '1024x2048', '1536x1024'];
 const COUNTS = [1, 2, 3, 4];
 
-const PROMPT_EXAMPLES = [
-  '精灵族弓箭手立绘，正面站立，全身像，干净纯色背景，厚涂风格，游戏素材',
-  '森林精灵法师，侧身施法姿势，半身像，柔和顶光，高细节',
-];
+const PROMPT_EXAMPLE_KEYS = ['im.example1', 'im.example2'];
 
 const ARK_CONSOLE_URL = 'https://console.volcengine.com/ark/region:cn-beijing/overview';
 
@@ -33,6 +31,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): React.JSX.Element {
+  const [lang] = useLang();
   const [slot, setSlot] = useState<SlotSettingsView | null>(null);
 
   const [prompt, setPrompt] = useState('');
@@ -101,15 +100,15 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
 
   const handleGenerate = async (): Promise<void> => {
     if (!slot?.model) {
-      setError('还没有选择图像模型：请到「模型设置 → 图像生成」拉取模型列表并选一个，再回来生成');
+      setError(t('im.err.noModel', lang));
       return;
     }
     if (!slot.hasKey) {
-      setError('图像槽位还没有填写 API Key：请到「模型设置 → 图像生成」配置后再生成');
+      setError(t('im.err.noKey', lang));
       return;
     }
     if (!prompt.trim()) {
-      setError('先写提示词再生成');
+      setError(t('im.err.noPrompt', lang));
       return;
     }
     setError(null);
@@ -123,7 +122,7 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
     }
 
     // 和正在跑的其它长任务冲突时先问用户，他点取消就什么都不做
-    if (!tryStart('image-studio', '图像生成')) return;
+    if (!tryStart('image-studio', t('im.busyLabel', lang))) return;
     setGenerating(true);
     setResult(null);
     const res = await window.skeletonElf.ai.generateImage({
@@ -166,9 +165,13 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
       <div className="stack">
         <section className="card">
           <div className="card__head">
-            <h2>生成图像</h2>
+            <h2>{t('im.title', lang)}</h2>
             <span className={`tag ${ready ? 'tag--ok' : 'tag--warn'}`}>
-              {ready ? '图像槽位已就绪' : slotEnabled ? '图像槽位未配置 Key' : '图像槽位已停用'}
+              {ready
+                ? t('im.slot.ready', lang)
+                : slotEnabled
+                  ? t('im.slot.noKey', lang)
+                  : t('im.slot.disabled', lang)}
             </span>
           </div>
 
@@ -176,30 +179,35 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
             {slot ? (
               <>
                 <span className="studio-slot__label">{preset?.label ?? slot.providerId}</span>
-                <code>{slot.model || '未设置模型'}</code>
+                <code>{slot.model || t('im.slot.noModel', lang)}</code>
                 <code className="muted">{slot.baseUrl}</code>
               </>
             ) : (
-              <span className="muted">正在读取图像槽位…</span>
+              <span className="muted">{t('im.slot.loading', lang)}</span>
             )}
             <button type="button" className="btn btn--ghost" onClick={onOpenModelSettings}>
-              去配置图像槽位
+              {t('im.slot.configure', lang)}
             </button>
           </div>
 
           <label className="field">
-            <span className="field__label">提示词</span>
+            <span className="field__label">{t('im.prompt', lang)}</span>
             <textarea
               className="input textarea"
               rows={5}
               value={prompt}
-              placeholder={PROMPT_EXAMPLES[0]}
+              placeholder={t(PROMPT_EXAMPLE_KEYS[0], lang)}
               onChange={(event) => setPrompt(event.target.value)}
             />
             <span className="field__hint">
-              {PROMPT_EXAMPLES.map((example) => (
-                <button key={example} type="button" className="link-btn" onClick={() => setPrompt(example)}>
-                  示例
+              {PROMPT_EXAMPLE_KEYS.map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="link-btn"
+                  onClick={() => setPrompt(t(key, lang))}
+                >
+                  {t('im.example', lang)}
                 </button>
               ))}
             </span>
@@ -207,7 +215,7 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
 
           <div className="studio-params">
             <label className="field">
-              <span className="field__label">尺寸</span>
+              <span className="field__label">{t('im.size', lang)}</span>
               <select className="input select" value={size} onChange={(event) => setSize(event.target.value)}>
                 {SIZES.map((option) => (
                   <option key={option} value={option}>
@@ -218,11 +226,11 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
             </label>
 
             <label className="field">
-              <span className="field__label">数量</span>
+              <span className="field__label">{t('im.count', lang)}</span>
               <select className="input select" value={count} onChange={(event) => setCount(Number(event.target.value))}>
                 {COUNTS.map((option) => (
                   <option key={option} value={option}>
-                    {option} 张
+                    {t('im.countUnit', lang, { count: String(option) })}
                   </option>
                 ))}
               </select>
@@ -230,7 +238,7 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
           </div>
 
           <div className="field">
-            <span className="field__label">背景色（游戏素材要能干净抠图）</span>
+            <span className="field__label">{t('im.bg', lang)}</span>
             <div className="bg-swatches">
               <button
                 type="button"
@@ -241,7 +249,9 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
                 }}
                 disabled={analyzing}
               >
-                {analyzing ? '分析主体色…' : `AI 自动避让 · ${suggestion?.color ?? autoPick.color}`}
+                {analyzing
+                  ? t('im.bg.analyzing', lang)
+                  : t('im.bg.auto', lang, { color: suggestion?.color ?? autoPick.color })}
               </button>
               {BACKGROUND_PRESETS.map((option) => (
                 <button
@@ -259,36 +269,53 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
               ))}
             </div>
             <span className="field__hint">
-              生成时会强制「纯色背景 {effectiveBackground}，无渐变、无阴影、无地面」，出图后可直接去背景。
+              {t('im.bg.hint', lang, { color: effectiveBackground })}
               {autoBackground
                 ? suggestion
-                  ? ` · ${suggestion.source === 'ai' ? 'AI 分析' : '回退启发式'}：${suggestion.reason}`
-                  : ' · 点上面按钮可先用文本模型分析主体颜色'
+                  ? t('im.bg.reason', lang, {
+                      source:
+                        suggestion.source === 'ai'
+                          ? t('im.bg.sourceAI', lang)
+                          : t('im.bg.sourceHeuristic', lang),
+                      reason: suggestion.reason,
+                    })
+                  : t('im.bg.tip', lang)
                 : ''}
             </span>
           </div>
 
           <label className="checkbox">
             <input type="checkbox" checked={saveToKnowledge} onChange={(event) => setSaveToKnowledge(event.target.checked)} />
-            生成结果存入素材库（不勾选则放 <code>data/cache/generated</code>，随时可清）
+            {t('im.saveToKnowledge', lang)}
           </label>
 
           <div className="actions">
             <button type="button" className="btn btn--primary" onClick={() => void handleGenerate()} disabled={generating || !ready}>
-              {generating ? '生成中…（出图通常 5–30 秒）' : `生成图像${thisCost === null ? '' : `（约 ¥${thisCost}）`}`}
+              {generating
+                ? t('im.btn.generating', lang)
+                : thisCost === null
+                  ? t('im.btn.generate', lang)
+                  : t('im.btn.generateCost', lang, { cost: String(thisCost) })}
             </button>
             {result ? (
               <span className="hint">
-                耗时 {(result.elapsedMs / 1000).toFixed(1)}s · {result.model} · 背景 {result.backgroundColor} ·{' '}
-                {result.estimatedCost === null ? '单价未知' : `本次花费约 ¥${result.estimatedCost}`}
+                {t('im.result.meta', lang, {
+                  elapsed: (result.elapsedMs / 1000).toFixed(1),
+                  model: result.model,
+                  bg: result.backgroundColor,
+                  cost:
+                    result.estimatedCost === null
+                      ? t('im.result.noPrice', lang)
+                      : t('im.result.cost', lang, { cost: String(result.estimatedCost) }),
+                })}
               </span>
             ) : null}
             <div className="actions__end">
               <button type="button" className="btn btn--ghost" onClick={() => void openDir('knowledge')}>
-                打开素材库目录
+                {t('im.btn.openKnowledge', lang)}
               </button>
               <button type="button" className="btn btn--ghost" onClick={() => void openDir('cache')}>
-                打开生成目录
+                {t('im.btn.openCache', lang)}
               </button>
             </div>
           </div>
@@ -300,8 +327,12 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
         {result ? (
           <section className="card">
             <div className="card__head">
-              <h2>本次结果（{result.images.length} 张）</h2>
-              <span className="hint">{result.images[0]?.inKnowledge ? '已存入素材库' : '仅在缓存目录'}</span>
+              <h2>{t('im.results.title', lang, { count: String(result.images.length) })}</h2>
+              <span className="hint">
+                {result.images[0]?.inKnowledge
+                  ? t('im.results.inLib', lang)
+                  : t('im.results.cacheOnly', lang)}
+              </span>
             </div>
             <div className="studio-grid">
               {result.images.map((image) => (
@@ -309,7 +340,7 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
                   {image.thumbDataUrl ? (
                     <img src={image.thumbDataUrl} alt={image.fileName} />
                   ) : (
-                    <div className="studio-item__placeholder">无法预览</div>
+                    <div className="studio-item__placeholder">{t('im.noPreview', lang)}</div>
                   )}
                   <figcaption>
                     <span>
@@ -317,14 +348,14 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
                     </span>
                     <code title={image.absPath}>{image.fileName}</code>
                     <span className={`tag ${image.inKnowledge ? 'tag--ok' : 'tag--warn'}`}>
-                      {image.inKnowledge ? '已入库' : '未入库'}
+                      {image.inKnowledge ? t('im.inLib', lang) : t('im.notInLib', lang)}
                     </span>
                     <div className="studio-item__actions">
                       <button type="button" className="btn btn--ghost" onClick={() => void startEdit(image.absPath)}>
-                        编辑 / 去背景
+                        {t('im.btn.edit', lang)}
                       </button>
                       <button type="button" className="btn btn--ghost" onClick={() => void reveal(image.absPath)}>
-                        定位文件
+                        {t('im.btn.reveal', lang)}
                       </button>
                     </div>
                   </figcaption>
@@ -335,14 +366,11 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
           </section>
         ) : (
           <section className="card card--hint">
-            <h3>还没有本次生成结果</h3>
-            <p className="muted">
-              之前生成的图在 <code>data/cache/generated</code>（未入库）或 <code>data/knowledge/files</code>（已入库），点上方
-              「打开生成目录 / 打开素材库目录」就能看到。
-            </p>
+            <h3>{t('im.empty.title', lang)}</h3>
+            <p className="muted">{t('im.empty.body', lang)}</p>
             <div className="actions">
               <button type="button" className="btn btn--ghost" onClick={() => void openDir('cache')}>
-                打开生成目录
+                {t('im.btn.openCache', lang)}
               </button>
             </div>
           </section>
@@ -352,75 +380,71 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
       <div className="stack">
         <section className="card">
           <div className="card__head">
-            <h2>额度与消耗</h2>
+            <h2>{t('im.usage.title', lang)}</h2>
             <button type="button" className="btn btn--ghost" onClick={() => void loadUsage()} disabled={usageLoading}>
-              {usageLoading ? '统计中…' : '刷新'}
+              {usageLoading ? t('im.usage.loading', lang) : t('im.usage.refresh', lang)}
             </button>
           </div>
 
           <div className="balance-body">
             <div className="balance-line">
               <div className="balance-line__total">
-                <span className="balance-line__currency">单价</span>
+                <span className="balance-line__currency">{t('im.usage.unitPrice', lang)}</span>
                 <strong>{unitPrice === undefined ? '—' : `¥${unitPrice}`}</strong>
-                <span className="balance-line__currency">/ 张</span>
+                <span className="balance-line__currency">{t('im.usage.perImage', lang)}</span>
               </div>
               <div className="balance-line__detail">
-                <span>{slot?.model ?? '未配置模型'}</span>
-                {unitPrice === undefined ? <span>该模型未收录单价</span> : null}
+                <span>{slot?.model ?? t('im.usage.noModel', lang)}</span>
+                {unitPrice === undefined ? <span>{t('im.usage.noPrice', lang)}</span> : null}
               </div>
             </div>
 
             <div className="balance-extra">
               <div>
-                <span>累计生成</span>
-                <strong>{usage ? `${usage.totalImages} 张` : '—'}</strong>
+                <span>{t('im.usage.total', lang)}</span>
+                <strong>
+                  {usage ? t('im.usage.totalUnit', lang, { count: String(usage.totalImages) }) : '—'}
+                </strong>
               </div>
               <div>
-                <span>已入库</span>
+                <span>{t('im.usage.inLib', lang)}</span>
                 <strong>{usage ? usage.knowledgeImages : '—'}</strong>
               </div>
               <div>
-                <span>估算花费</span>
+                <span>{t('im.usage.cost', lang)}</span>
                 <strong>{usage && usage.estimatedCost !== null ? `¥${usage.estimatedCost}` : '—'}</strong>
               </div>
             </div>
 
             <div className="balance-foot">
-              <span>{usage ? usage.note : '正在统计…'}</span>
+              <span>{usage ? usage.note : t('im.usage.counting', lang)}</span>
             </div>
           </div>
 
           <p className="muted balance-note">
-            豆包 / 火山方舟没有公开的余额接口，账户余额只能看控制台：
+            {t('im.usage.noteHead', lang)}
             <a href={ARK_CONSOLE_URL} target="_blank" rel="noreferrer">
-              打开方舟控制台
+              {t('im.usage.console', lang)}
             </a>
-            。这里的数字是本地统计（不额外发请求），文本模型（DeepSeek）的余额在「模型设置」页。
+            {t('im.usage.noteTail', lang)}
           </p>
 
           <div className="actions">
             <button type="button" className="btn btn--ghost" onClick={onOpenModelSettings}>
-              去模型设置看文本模型余额
+              {t('im.usage.gotoModels', lang)}
             </button>
           </div>
         </section>
 
         <section className="card card--hint">
-          <h3>生成的东西存哪</h3>
-          <p className="muted">
-            勾选「存入素材库」时：原图写入 <code>data/knowledge/files</code>，缩略图写入 <code>data/knowledge/thumbs</code>，并在{' '}
-            <code>knowledge/index.json</code> 里登记（含来源模型与提示词）。
-          </p>
-          <p className="muted">服务商返回的临时 URL 24 小时后失效，所以生成后会立刻下载落盘，不依赖外链。</p>
+          <h3>{t('im.storage.title', lang)}</h3>
+          <p className="muted">{t('im.storage.body1', lang)}</p>
+          <p className="muted">{t('im.storage.body2', lang)}</p>
         </section>
 
         <section className="card card--hint">
-          <h3>编辑与去背景</h3>
-          <p className="muted">
-            点结果图上的「编辑 / 去背景」会打开像素编辑器：从画布四边泛洪，只扣掉与边缘连通的背景（主体内部同色不会被误删），
-            还能微调容差与亮度。应用后保存为新 PNG（原图不覆盖）并登记进素材库。
-          </p>
+          <h3>{t('im.edit.title', lang)}</h3>
+          <p className="muted">{t('im.edit.body', lang)}</p>
         </section>
       </div>
 
@@ -430,7 +454,13 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
           onClose={() => setEditing(null)}
           onSaved={(saved) => {
             setEditing(null);
-            setNotice(`已保存编辑结果：${saved.fileName}（${saved.width}×${saved.height}），已登记进素材库`);
+            setNotice(
+              t('im.msg.savedEdit', lang, {
+                name: saved.fileName,
+                w: String(saved.width),
+                h: String(saved.height),
+              }),
+            );
             void loadUsage();
           }}
         />

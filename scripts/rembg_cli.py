@@ -22,6 +22,7 @@
     单张：{"ok":true,"elapsed_ms":1234,"decontaminated":true}
 """
 import argparse
+import gc
 import glob
 import json
 import os
@@ -34,6 +35,49 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _PROJECT = os.path.dirname(_HERE)
 os.environ.setdefault("U2NET_HOME", os.path.join(_PROJECT, "data", "models"))
 os.environ.setdefault("POOCH_PROGRESSBAR", "0")
+
+
+def lower_priority():
+    """把本进程降到「低于正常」优先级。
+
+    为什么：批量抠图是纯 CPU 密集型，onnxruntime 默认吃满所有核心，
+    Electron 界面（切页、预览、视频解码）跟着一起卡死，表现为「抠图期间点不动」。
+    降优先级后 Windows 优先调度界面进程，抠图慢一点，但界面能正常响应。
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+        handle = ctypes.windll.kernel32.GetCurrentProcess()
+        ctypes.windll.kernel32.SetPriorityClass(handle, BELOW_NORMAL_PRIORITY_CLASS)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def make_session(model):
+    """创建 rembg session，并给 onnxruntime 线程数封顶。
+
+    默认 ORT 会用满物理核心，抠图期间界面基本没法用。这里留 1 个核给界面；
+    需要极限速度时可以用环境变量 SFE_MATTING_THREADS 覆盖。
+    """
+    import onnxruntime as ort
+    from rembg import new_session
+
+    cores = os.cpu_count() or 4
+    threads = max(1, cores - 1)
+    override = os.environ.get("SFE_MATTING_THREADS")
+    if override:
+        try:
+            threads = max(1, int(override))
+        except ValueError:
+            pass
+
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = threads
+    opts.inter_op_num_threads = 1
+    return new_session(model, sess_opts=opts)
 
 
 def decontaminate(image):
@@ -64,10 +108,10 @@ _WORKER = {}
 def _init_worker(model, alpha_matting, no_decontaminate, batch_out, fg, bg, erode):
     """子进程初始化：加载一次模型，之后所有帧复用。"""
     import rembg
-    from rembg import new_session
 
+    lower_priority()  # 子进程自己再降一次，保证并行时也不抢界面的核
     _WORKER["remove"] = rembg.remove
-    _WORKER["session"] = new_session(model)
+    _WORKER["session"] = make_session(model)
     _WORKER["opts"] = {
         "alpha_matting": alpha_matting,
         "no_decontaminate": no_decontaminate,
@@ -94,6 +138,11 @@ def _process_task(src):
     )
     try:
         process_one(_WORKER["remove"], _WORKER["session"], src, dst, fake_args)
+        # 每处理 5 张强制回收一次：onnxruntime 的中间张量和 PIL 图像由 Python
+        # 分配器持有，长批次里会「只涨不回」，周期回收能明显压住常驻内存。
+        _WORKER["count"] = _WORKER.get("count", 0) + 1
+        if _WORKER["count"] % 5 == 0:
+            gc.collect()
         return (name, "")
     except Exception as exc:  # noqa: BLE001
         return (name, str(exc))
@@ -190,9 +239,10 @@ def main() -> int:
         return 3
 
     started = time.time()
+    lower_priority()
     try:
         # 关键：模型只加载一次，批量时所有帧共用一个 session
-        session = new_session(args.model)
+        session = make_session(args.model)
     except Exception as exc:  # noqa: BLE001
         sys.stderr.write(
             "模型加载失败（名字必须用 rembg 认的，例如 birefnet-general / u2net / isnet-anime）: %s\n"
@@ -242,6 +292,10 @@ def main() -> int:
                     flush=True,
                 )
                 continue
+            # 逐张处理、逐张落盘：每张的临时对象在 process_one 返回时就失效了，
+            # 这里再每 5 张强制回收一次，避免长批次里内存「只涨不回」。
+            if (index + 1) % 5 == 0:
+                gc.collect()
             print(
                 json.dumps({"type": "progress", "done": index + 1, "total": total, "file": name}),
                 flush=True,

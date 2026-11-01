@@ -6,6 +6,7 @@ import { removeBackground } from '@imgly/background-removal-node';
 import type { AiMattingResult } from '../../shared/ipc';
 import { AI_MATTING_MODEL } from '../../shared/features';
 import { getDataDirs } from '../core/paths';
+import { msg } from '../core/msg';
 
 const EXT_MIME: Record<string, string> = {
   '.png': 'image/png',
@@ -16,12 +17,12 @@ const EXT_MIME: Record<string, string> = {
 
 /** 只允许处理数据目录内的图片 */
 function assertInsideData(target: unknown): string {
-  if (typeof target !== 'string' || !target.trim()) throw new Error('文件路径无效');
+  if (typeof target !== 'string' || !target.trim()) throw new Error(msg('err.file.badPath'));
   const root = getDataDirs().root;
   const resolved = path.resolve(target);
   const rel = path.relative(root, resolved);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error('不允许访问数据目录以外的文件');
+    throw new Error(msg('err.file.outsideData'));
   }
   return resolved;
 }
@@ -33,8 +34,8 @@ function assertInsideData(target: unknown): string {
 export async function removeImageBackground(absPath: string): Promise<AiMattingResult> {
   const resolved = assertInsideData(absPath);
   const buffer = fs.readFileSync(resolved);
-  if (buffer.length === 0) throw new Error('图片为空');
-  if (buffer.length > 30 * 1024 * 1024) throw new Error('图片过大（上限 30MB）');
+  if (buffer.length === 0) throw new Error(msg('err.model.emptyImage'));
+  if (buffer.length > 30 * 1024 * 1024) throw new Error(msg('err.file.imageTooLarge30'));
 
   const mime = EXT_MIME[path.extname(resolved).toLowerCase()] ?? 'image/png';
   const startedAt = Date.now();
@@ -48,7 +49,7 @@ export async function removeImageBackground(absPath: string): Promise<AiMattingR
   });
 
   const outBuffer = Buffer.from(await result.arrayBuffer());
-  if (outBuffer.length === 0) throw new Error('抠图结果为空');
+  if (outBuffer.length === 0) throw new Error(msg('err.model.emptyResult'));
 
   const decoded = nativeImage.createFromBuffer(outBuffer);
   const size = decoded.isEmpty() ? { width: 0, height: 0 } : decoded.getSize();

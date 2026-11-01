@@ -5,6 +5,7 @@ import { nativeImage } from 'electron';
 import * as ort from 'onnxruntime-node';
 import type { AiMattingResult } from '../../shared/ipc';
 import { getDataDirs } from '../core/paths';
+import { msg } from '../core/msg';
 
 /**
  * BiRefNet 抠图（rembg 同款模型，纯 ONNX 推理，不依赖 Python）。
@@ -26,13 +27,14 @@ export type MattingModelId = 'anime' | 'toonout' | 'lite' | 'ben2' | 'birefnet' 
 
 interface ModelSpec {
   id: MattingModelId;
-  label: string;
+  /** 界面文案 key（label / hint 都走三语字典，主进程按当前界面语言取） */
+  labelKey: string;
   /** data/models/ 下的候选文件名 */
   files: string[];
   /** 模型固定的输入边长 */
   inputSize: number;
   /** 权重缺失时给用户的提示 */
-  hint: string;
+  hintKey: string;
 }
 
 const MODELS: ModelSpec[] = [
@@ -41,10 +43,12 @@ const MODELS: ModelSpec[] = [
     // 注意精度：官方 MODEL_DTYPE 取模型原生精度（fp32），
     // fp16 版本虽然快一倍，但边缘判断会明显变糙 —— 所以 fp32 排第一。
     id: 'birefnet',
-    label: 'BiRefNet 官方原版 · 官网同款（fp32 973MB，最准）',
-    files: ['birefnet.onnx', 'birefnet-fp16.onnx'],
+    labelKey: 'model.birefnet.label',
+    // birefnet-general.onnx 是发布版里的文件名（rembg 的 session 名），
+    // 内容和平时的 birefnet.onnx 相同，列在前面让状态探测能找到它。
+    files: ['birefnet-general.onnx', 'birefnet.onnx', 'birefnet-fp16.onnx'],
     inputSize: 1024,
-    hint: 'birefnet.onnx ← https://hf-mirror.com/onnx-community/BiRefNet-ONNX/resolve/main/onnx/model.onnx',
+    hintKey: 'model.birefnet.hint',
   },
   {
     // 实测（1024 合成图，白/紫/黑三种背景）：
@@ -52,48 +56,48 @@ const MODELS: ModelSpec[] = [
     //   lite    → logits -21..20，sigmoid 后 22.2%，也稳定 ✓
     //   isnet-anime / isnet-general → 在紫底/黑底上输出接近 0，会把图整片抠没 ✗
     id: 'u2net',
-    label: 'U2Net · 轻量备选（168MB，320 输入，很快）',
+    labelKey: 'model.u2net.label',
     files: ['u2net.onnx'],
     inputSize: 320,
-    hint: 'u2net.onnx ← https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2net.onnx（放到 data/models/，不用改名）',
+    hintKey: 'model.u2net.hint',
   },
   {
     // 排第二：实测输出 logits(-21..20)，sigmoid 后分布正确，512 输入只要 1.6 秒。
     id: 'lite',
-    label: 'BiRefNet_lite-512 · 备选（182MB，1.6 秒）',
+    labelKey: 'model.lite.label',
     files: ['birefnet-lite-512.onnx'],
     inputSize: 512,
-    hint: 'birefnet-lite-512.onnx ← https://hf-mirror.com/studioludens/birefnet-lite-512/resolve/main/onnx/model.onnx',
+    hintKey: 'model.lite.hint',
   },
   {
     id: 'toonout',
-    label: 'ToonOut · 动漫立绘最强（469MB，慢）',
+    labelKey: 'model.toonout.label',
     files: ['birefnet-toonout.onnx'],
     inputSize: 1024,
-    hint: 'birefnet-toonout.onnx ← https://hf-mirror.com/sprited/birefnet-toonout-onnx/resolve/main/birefnet-toonout-fp16.onnx',
+    hintKey: 'model.toonout.hint',
   },
   {
     id: 'anime',
-    label: 'isnet-anime · 动漫专用（168MB，快）',
+    labelKey: 'model.anime.label',
     files: ['isnet-anime.onnx', 'isnetis.onnx'],
     inputSize: 1024,
-    hint: 'isnet-anime.onnx ← https://hf-mirror.com/skytnt/anime-seg/resolve/main/isnetis.onnx',
+    hintKey: 'model.anime.hint',
   },
   {
     id: 'ben2',
-    label: 'BEN2 · 主体保留最完整（208MB，需 CPU 支持 fp16，多数机器跑不了）',
+    labelKey: 'model.ben2.label',
     files: ['ben2.onnx'],
     inputSize: 1024,
-    hint: 'ben2.onnx ← https://hf-mirror.com/onnx-community/BEN2-ONNX/resolve/main/onnx/model_fp16.onnx',
+    hintKey: 'model.ben2.hint',
   },
   {
     // rembg 的高质量通用模型
     // 实测：白底 21.1% 正常，但紫底 0.0%、黑底 0.0% —— 只适合白/浅色背景
     id: 'isnet-general',
-    label: 'ISNet general-use · rembg 高质量（176MB）',
+    labelKey: 'model.isnetGeneral.label',
     files: ['isnet-general-use.onnx'],
     inputSize: 1024,
-    hint: 'isnet-general-use.onnx ← https://github.com/danielgatis/rembg/releases/download/v0.0.0/isnet-general-use.onnx（放到 data/models/，不用改名）',
+    hintKey: 'model.isnetGeneral.hint',
   },
 ];
 
@@ -142,10 +146,10 @@ export function listMattingModels(): {
     const file = findModelFile(spec.id);
     return {
       id: spec.id,
-      label: spec.label,
+      label: msg(spec.labelKey),
       available: Boolean(file),
       sizeMb: file ? Math.round(fs.statSync(file).size / 1024 / 1024) : 0,
-      hint: spec.hint,
+      hint: msg(spec.hintKey),
     };
   });
 }
@@ -178,7 +182,11 @@ async function getSession(id: MattingModelId): Promise<ort.InferenceSession> {
   if (!modelPath) {
     const spec = MODELS.find((item) => item.id === id);
     throw new Error(
-      `没有找到 ${id} 模型。请把权重放到：\n${modelsDir()}\n下载地址：${spec?.hint ?? ''}`,
+      msg('err.model.missing', {
+        id,
+        dir: modelsDir(),
+        hint: spec ? msg(spec.hintKey) : '',
+      }),
     );
   }
   const cached = sessions.get(id);
@@ -216,10 +224,10 @@ interface PreprocessResult {
  */
 function toInputTensor(pngBuffer: Buffer, size: number): PreprocessResult {
   const image = nativeImage.createFromBuffer(pngBuffer);
-  if (image.isEmpty()) throw new Error('图片解码失败');
+  if (image.isEmpty()) throw new Error(msg('err.model.decodeFailed'));
   const { width, height } = image.getSize();
   const bitmap = image.toBitmap(); // BGRA
-  if (bitmap.length < width * height * 4) throw new Error('位图数据不完整');
+  if (bitmap.length < width * height * 4) throw new Error(msg('err.model.bitmapIncomplete'));
 
   const plane = size * size;
   const data = new Float32Array(3 * plane);
@@ -290,7 +298,7 @@ export async function removeBackgroundBirefnet(
 ): Promise<AiMattingResult> {
   const startedAt = Date.now();
   const buffer = fs.readFileSync(absPath);
-  if (buffer.length === 0) throw new Error('图片为空');
+  if (buffer.length === 0) throw new Error(msg('err.model.emptyImage'));
 
   const modelId: MattingModelId = MODELS.some((spec) => spec.id === options.model)
     ? (options.model as MattingModelId)
@@ -320,7 +328,7 @@ export async function removeBackgroundBirefnet(
     ? 'output_image'
     : (names[names.length - 1] ?? 'output_image');
   const tensor = results[outputName];
-  if (!tensor) throw new Error('模型没有输出');
+  if (!tensor) throw new Error(msg('err.model.noOutput'));
 
   console.log(
     `[matting] 可选输出 [${names.join(', ')}] → 采用 ${outputName} type=${tensor.type} dims=${JSON.stringify(tensor.dims)}`,
@@ -395,9 +403,7 @@ export async function removeBackgroundBirefnet(
 
     if (foregroundRatio < 0.005) {
       throw new Error(
-        `模型没认出主体（前景占比仅 ${(foregroundRatio * 100).toFixed(2)}%），结果会是一张全透明的空图。` +
-          '常见原因：① 背景是纯白/纯色，当前模型对它不敏感 —— 换「isnet-anime」或「ToonOut」再试；' +
-          '② 这张图本身已经是抠好的透明 PNG；③ 主体在画面里太小。',
+        msg('err.model.noSubject', { percent: (foregroundRatio * 100).toFixed(2) }),
       );
     }
   }
@@ -566,7 +572,7 @@ export async function removeBackgroundBirefnet(
 
   const outImage = nativeImage.createFromBitmap(out, { width, height });
   const png = outImage.toPNG();
-  if (png.length === 0) throw new Error('抠图结果为空');
+  if (png.length === 0) throw new Error(msg('err.model.emptyResult'));
 
   return {
     dataUrl: `data:image/png;base64,${png.toString('base64')}`,

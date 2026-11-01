@@ -5,6 +5,7 @@ import { getProviderPreset, PROVIDER_PRESETS, type ProviderId } from '../../shar
 import type { KeyStorage, SaveSlotInput, SlotKey, SlotKeyEntry, SlotSettingsView } from '../../shared/ipc';
 import { getDataDirs } from './paths';
 import { isSlotEnabled } from './slot-flags';
+import { msg } from './msg';
 
 interface StoredKey {
   /** base64：encrypted 时是系统密文，plain 时是明文（回退） */
@@ -35,11 +36,16 @@ interface StoredSettings {
 const SETTINGS_VERSION = 3;
 export const SLOT_KEYS: SlotKey[] = ['chat', 'image', 'video'];
 
-/** 各槽位的默认服务商：文本用 DeepSeek，图像 / 视频 / 抠图默认豆包 */
+/**
+ * 各槽位的默认服务商。
+ *
+ * 统一默认「自定义（OpenAI 兼容）」：接入任何模型其实只要有 URL + Key + 模型名，
+ * 默认摆出某个厂商会让人以为必须用那家。想在界面上快速填 URL 时再切预设即可。
+ */
 const SLOT_DEFAULT_PROVIDER: Record<SlotKey, ProviderId> = {
-  chat: 'deepseek',
-  image: 'doubao',
-  video: 'doubao',
+  chat: 'custom',
+  image: 'custom',
+  video: 'custom',
 };
 
 let cached: StoredSettings | null = null;
@@ -360,7 +366,7 @@ export async function copySlotKey(from: SlotKey, to: SlotKey, providerId?: Provi
   const source = current.slots[from];
   const pid = providerId ?? source.providerId;
   const key = source.keys[pid];
-  if (!key) throw new Error('来源槽位没有该服务商的 Key，请先在那里填写');
+  if (!key) throw new Error(msg('err.settings.copyNoKey'));
 
   const target = current.slots[to];
   const next: StoredSettings = {

@@ -9,6 +9,7 @@ import type {
   SaveFrameProjectInput,
 } from '../../shared/ipc';
 import { getDataDirs } from './paths';
+import { msg } from './msg';
 
 /**
  * 帧动画项目存储：
@@ -303,14 +304,20 @@ function rebuildMeta(dir: string, folderName: string): FrameProjectMeta | null {
 /** 从 dataURL 里取出二进制（只接受 PNG/JPEG） */
 function decodeDataUrl(dataUrl: string): Buffer {
   const match = /^data:image\/(png|jpeg|jpg);base64,([A-Za-z0-9+/=\s]+)$/i.exec(dataUrl);
-  if (!match) throw new Error('帧数据格式无效（需要 PNG dataURL）');
+  if (!match) throw new Error(msg('err.frames.badData'));
   return Buffer.from(match[2].replace(/\s/g, ''), 'base64');
 }
 
 /** 把一批帧写成新项目；同名文件夹自动加后缀，绝不覆盖已有项目 */
 export function saveFrameProject(input: SaveFrameProjectInput): FrameProjectView {
   const frames = Array.isArray(input.frames) ? input.frames : [];
-  if (frames.length === 0) throw new Error('没有可保存的帧');
+  if (frames.length === 0) throw new Error(msg('err.frames.empty'));
+  /* 一帧不构成动画：低于 2 帧没法播放、没法找循环点，直接拒绝。
+     下划线开头的是内部临时集合（_preview），不受这条限制。 */
+  const isInternal = String(input.name ?? '').startsWith('_');
+  if (!isInternal && frames.length < 2) {
+    throw new Error(msg('err.frames.tooFew'));
+  }
 
   /* 直接写到最终位置 sources/ —— 之前这里用的是 frames 根目录，
      导致刚抽完的帧落在 frames/<id>，要等下次启动迁移才「看得见」。 */
@@ -318,7 +325,7 @@ export function saveFrameProject(input: SaveFrameProjectInput): FrameProjectView
   const base = sanitizeFolderName(input.name || 'frames');
   // 同名一律报错交给用户改名，不再自动加 _2 —— 避免悄悄生成一堆 folder_2/3/4
   if (fs.existsSync(path.join(root, base))) {
-    throw new Error(`已存在同名文件夹「${base}」，请换一个名称`);
+    throw new Error(msg('err.frames.nameExists', { name: base }));
   }
   const id = base;
 
@@ -346,12 +353,85 @@ export function saveFrameProject(input: SaveFrameProjectInput): FrameProjectView
   return toView(meta);
 }
 
+/**
+ * 重命名帧集合（改的是磁盘上的文件夹名）。
+ *
+ * 为什么必须在应用里改：直接去资源管理器把文件夹改名，文件夹里的 meta.json 还写着旧 id，
+ * 下次启动界面就认不出这个集合（列表里会当成新建的空项目）。
+ *
+ * 重名一律报错、绝不覆盖 —— 否则会把已有的同名集合顶掉。
+ */
+export function renameFrameProject(id: string, nextName: string): FrameProjectView {
+  const root = getDataDirs().frameSources;
+  const from = path.join(root, sanitizeFolderName(id));
+  if (!fs.existsSync(from)) throw new Error(msg('err.frames.setMissing', { id }));
+
+  const raw = String(nextName ?? '').trim();
+  if (!raw) throw new Error(msg('err.frames.emptyName'));
+  const target = sanitizeFolderName(raw);
+
+  if (target === path.basename(from)) {
+    const same = readMeta(from);
+    if (!same) throw new Error(msg('err.frames.noMeta'));
+    return toView(same);
+  }
+
+  const to = path.join(root, target);
+  if (fs.existsSync(to)) {
+    throw new Error(msg('err.frames.nameExistsNoOverwrite', { name: target }));
+  }
+
+  fs.renameSync(from, to);
+
+  // meta.json 里的 id / name 必须跟着改，否则 listFrameProjects 找不到它
+  const meta = readMeta(to) ?? rebuildMeta(to, target);
+  if (!meta) throw new Error(msg('err.frames.noFramesInSet'));
+  const renamed: FrameProjectMeta = { ...meta, id: target, name: target };
+  writeMeta(to, renamed);
+  return toView(renamed);
+}
+
 /** 删除整个项目文件夹 */
 export function removeFrameProject(id: string): void {
   const dir = projectDirOf(sanitizeFolderName(id));
-  if (!dir.startsWith(getDataDirs().frames)) throw new Error('非法的项目目录');
+  if (!dir.startsWith(getDataDirs().frames)) throw new Error(msg('err.frames.outsideDir'));
   if (!fs.existsSync(dir)) return;
   fs.rmSync(dir, { recursive: true, force: true });
+}
+
+/**
+ * 重命名抠图结果目录（outputs/<基名>-matte / -key）。
+ *
+ * 后缀是区分「模型抠图 / 传统抠图」的标记，改名时一律保留原后缀，
+ * 用户只改前面的基名（就算他把 -matte 也写进去也会被剥掉再补回来）。
+ * 重名直接报错、不覆盖。
+ *
+ * 返回改完之后的目录名（新 id）。
+ */
+export function renameFrameOutput(name: string, nextName: string): string {
+  const dirs = getDataDirs();
+  const match = /^(.*)-(matte|key)$/i.exec(String(name ?? '').trim());
+  if (!match) throw new Error(msg('err.frames.notOutputDir'));
+
+  const suffix = `-${match[2].toLowerCase()}`;
+  const from = path.join(dirs.frameOutputs, path.basename(String(name).trim()));
+  if (!fs.existsSync(from)) throw new Error(msg('err.frames.outputMissing', { name }));
+
+  const raw = String(nextName ?? '').trim();
+  if (!raw) throw new Error(msg('err.frames.emptyName'));
+  // 用户可能把后缀一起写进来，先剥掉，最后统一补原后缀
+  const base = raw.replace(/-(matte|key)$/i, '');
+  const target = `${sanitizeFolderName(base)}${suffix}`;
+
+  if (target === path.basename(from)) return target;
+
+  const to = path.join(dirs.frameOutputs, target);
+  if (fs.existsSync(to)) {
+    throw new Error(msg('err.frames.nameExistsNoOverwrite', { name: target }));
+  }
+
+  fs.renameSync(from, to);
+  return target;
 }
 
 /**
@@ -360,11 +440,11 @@ export function removeFrameProject(id: string): void {
  */
 export function removeFrameFile(id: string, fileName: string): { frameCount: number } {
   const dir = projectDirOf(sanitizeFolderName(id));
-  if (!dir.startsWith(getDataDirs().frames)) throw new Error('非法的项目目录');
+  if (!dir.startsWith(getDataDirs().frames)) throw new Error(msg('err.frames.outsideDir'));
   // 只允许删 frame_*.png，防止路径穿越或被拿来删 meta.json
-  if (!/^frame_\d+\.png$/i.test(fileName)) throw new Error(`帧文件名不合法：${fileName}`);
+  if (!/^frame_\d+\.png$/i.test(fileName)) throw new Error(msg('err.frames.badFrameName', { name: fileName }));
   const target = path.join(dir, fileName);
-  if (!target.startsWith(dir)) throw new Error('非法的帧路径');
+  if (!target.startsWith(dir)) throw new Error(msg('err.frames.badFramePath'));
   if (fs.existsSync(target)) fs.unlinkSync(target);
 
   let frameCount = 0;

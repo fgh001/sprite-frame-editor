@@ -6,17 +6,18 @@ import type {
   IpcResult,
 } from '../../shared/ipc';
 import { generateLoopVideo } from '../services/video';
+import { msg } from '../core/msg';
 
 function toError(err: unknown): IpcErr {
   return { ok: false, error: err instanceof Error ? err.message : String(err) };
 }
 
 function validate(raw: unknown): GenerateLoopVideoInput {
-  if (!raw || typeof raw !== 'object') throw new Error('生成参数无效');
+  if (!raw || typeof raw !== 'object') throw new Error(msg('err.video.badArgs'));
   const input = raw as Partial<GenerateLoopVideoInput>;
 
   if (typeof input.imageAbsPath !== 'string' || !input.imageAbsPath.trim()) {
-    throw new Error('请先选择一张图片');
+    throw new Error(msg('err.video.noImage'));
   }
   const prompt = typeof input.prompt === 'string' ? input.prompt.slice(0, 1000) : '';
   const duration = Math.min(12, Math.max(2, Math.round(Number(input.duration) || 5)));
@@ -27,7 +28,7 @@ function validate(raw: unknown): GenerateLoopVideoInput {
     : [];
 
   if (mode === 'reference' && referenceImagePaths.length === 0) {
-    throw new Error('参考模式下至少要选 1 张参考图');
+    throw new Error(msg('err.video.needRef'));
   }
 
   return {

@@ -1,11 +1,12 @@
 import { app, ipcMain, shell } from 'electron';
 import type { AppInfo, IpcResult } from '../../shared/ipc';
 import { getDataDirs } from '../core/paths';
+import { msg } from '../core/msg';
 
 function buildAppInfo(): AppInfo {
   const dirs = getDataDirs();
   return {
-    name: '精灵帧动画编辑器',
+    name: msg('app.name'),
     version: app.getVersion(),
     isPackaged: app.isPackaged,
     platform: process.platform,

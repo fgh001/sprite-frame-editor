@@ -23,6 +23,7 @@ import {
 } from '../services/rembg-cli';
 import { keyOutDirectory, sampleBackground } from '../services/color-key';
 import { getDataDirs } from '../core/paths';
+import { msg } from '../core/msg';
 import { trimLoopInDirectory } from '../services/loop-trim';
 import { openDataDir, readImageAsDataUrl, readMediaBytes, readUsage, revealFile, saveEditedImage } from './media';
 
@@ -33,8 +34,8 @@ function toError(err: unknown): IpcErr {
 export function registerFilesIpc(): void {
   ipcMain.handle('files:removeBackground', async (_event, absPath: unknown): Promise<IpcResult<AiMattingResult>> => {
     try {
-      if (!FEATURE_AI_MATTING) throw new Error('AI 抠图已禁用（shared/features.ts 里可重新开启）');
-      if (typeof absPath !== 'string') throw new Error('文件路径无效');
+      if (!FEATURE_AI_MATTING) throw new Error(msg('err.file.mattingDisabled'));
+      if (typeof absPath !== 'string') throw new Error(msg('err.file.badPath'));
       return { ok: true, data: await removeImageBackground(absPath) };
     } catch (err) {
       return toError(err);
@@ -46,7 +47,7 @@ export function registerFilesIpc(): void {
     'files:removeBackgroundBirefnet',
     async (_event, absPath: unknown, options: unknown): Promise<IpcResult<AiMattingResult>> => {
       try {
-        if (typeof absPath !== 'string') throw new Error('文件路径无效');
+        if (typeof absPath !== 'string') throw new Error(msg('err.file.badPath'));
         const raw = (options && typeof options === 'object' ? options : {}) as {
           threshold?: number;
           feather?: number;
@@ -68,8 +69,8 @@ export function registerFilesIpc(): void {
     'files:rembgRemove',
     async (_event, absPath: unknown, options: unknown): Promise<IpcResult<AiMattingResult>> => {
       try {
-        if (typeof absPath !== 'string') throw new Error('文件路径无效');
-        if (!absPath) throw new Error('图片路径为空（帧动画的内存帧请传 dataUrl）');
+        if (typeof absPath !== 'string') throw new Error(msg('err.file.badPath'));
+        if (!absPath) throw new Error(msg('err.file.emptyImagePath'));
         const raw = (options && typeof options === 'object' ? options : {}) as {
           model?: string;
           alphaMatting?: boolean;
@@ -95,7 +96,7 @@ export function registerFilesIpc(): void {
         if (!python) {
           return {
             ok: true,
-            data: { available: false, message: '没有找到 pyshim/python.exe（项目 pyshim 目录缺失）' },
+            data: { available: false, message: msg('err.file.noPyshim') },
           };
         }
         return { ok: true, data: { ...(await probeRembg(python)) } };
@@ -137,7 +138,7 @@ export function registerFilesIpc(): void {
       }>
     > => {
       try {
-        if (typeof frameDir !== 'string' || !frameDir) throw new Error('帧目录无效');
+        if (typeof frameDir !== 'string' || !frameDir) throw new Error(msg('err.file.badFrameDir'));
         return {
           ok: true,
           data: trimLoopInDirectory(
@@ -161,7 +162,7 @@ export function registerFilesIpc(): void {
     'files:rembgCancel',
     async (_event, jobId: unknown): Promise<IpcResult<{ cancelled: boolean }>> => {
       try {
-        if (typeof jobId !== 'string' || !jobId) throw new Error('任务标识无效');
+        if (typeof jobId !== 'string' || !jobId) throw new Error(msg('err.file.badJobId'));
         return { ok: true, data: { cancelled: cancelBatch(jobId) } };
       } catch (err) {
         return toError(err);
@@ -174,15 +175,15 @@ export function registerFilesIpc(): void {
     'files:sampleFrameBackground',
     async (_event, frameDir: unknown): Promise<IpcResult<{ r: number; g: number; b: number }>> => {
       try {
-        if (typeof frameDir !== 'string' || !frameDir) throw new Error('帧目录无效');
+        if (typeof frameDir !== 'string' || !frameDir) throw new Error(msg('err.file.badFrameDir'));
         const files = fs
           .readdirSync(frameDir)
           .filter((name) => /^frame_\d+\.png$/i.test(name))
           .sort();
-        if (files.length === 0) throw new Error('目录里没有帧文件');
+        if (files.length === 0) throw new Error(msg('err.file.noFrames'));
         const buffer = fs.readFileSync(path.join(frameDir, files[0]));
         const color = sampleBackground(buffer);
-        if (!color) throw new Error('取色失败（图片太小或无法解码）');
+        if (!color) throw new Error(msg('err.file.colorPickFailed'));
         return { ok: true, data: color };
       } catch (err) {
         return toError(err);
@@ -199,7 +200,7 @@ export function registerFilesIpc(): void {
       options: unknown,
     ): Promise<IpcResult<{ total: number; elapsedMs: number; skipped: string[]; outDir: string }>> => {
       try {
-        if (typeof frameDir !== 'string' || !frameDir) throw new Error('帧目录无效');
+        if (typeof frameDir !== 'string' || !frameDir) throw new Error(msg('err.file.badFrameDir'));
         const raw = (options && typeof options === 'object' ? options : {}) as {
           colors?: unknown;
           tolerance?: unknown;
@@ -219,7 +220,7 @@ export function registerFilesIpc(): void {
               })
               .map((c) => ({ r: Number(c.r), g: Number(c.g), b: Number(c.b) }))
           : [];
-        if (colors.length === 0) throw new Error('至少要有一个背景色');
+        if (colors.length === 0) throw new Error(msg('err.file.needColor'));
         return {
           ok: true,
           data: keyOutDirectory(frameDir, {
@@ -248,7 +249,7 @@ export function registerFilesIpc(): void {
       jobId: unknown,
     ): Promise<IpcResult<{ total: number; elapsedMs: number; errors: string[]; outDir: string }>> => {
       try {
-        if (typeof frameDir !== 'string' || !frameDir) throw new Error('帧目录无效');
+        if (typeof frameDir !== 'string' || !frameDir) throw new Error(msg('err.file.badFrameDir'));
         const raw = (options && typeof options === 'object' ? options : {}) as {
           model?: string;
           alphaMatting?: boolean;
@@ -294,7 +295,7 @@ export function registerFilesIpc(): void {
   ipcMain.handle('files:openDir', async (_event, kind: unknown): Promise<IpcResult<null>> => {
     try {
       if (kind !== 'knowledge' && kind !== 'cache' && kind !== 'root') {
-        throw new Error('未知的目录类型');
+        throw new Error(msg('err.file.badDirKind'));
       }
       openDataDir(kind);
       return { ok: true, data: null };
@@ -305,7 +306,7 @@ export function registerFilesIpc(): void {
 
   ipcMain.handle('files:reveal', async (_event, absPath: unknown): Promise<IpcResult<null>> => {
     try {
-      if (typeof absPath !== 'string') throw new Error('文件路径无效');
+      if (typeof absPath !== 'string') throw new Error(msg('err.file.badPath'));
       revealFile(absPath);
       return { ok: true, data: null };
     } catch (err) {
@@ -315,7 +316,7 @@ export function registerFilesIpc(): void {
 
   ipcMain.handle('files:readImage', async (_event, absPath: unknown): Promise<IpcResult<EditableImage>> => {
     try {
-      if (typeof absPath !== 'string') throw new Error('文件路径无效');
+      if (typeof absPath !== 'string') throw new Error(msg('err.file.badPath'));
       return { ok: true, data: readImageAsDataUrl(absPath) };
     } catch (err) {
       return toError(err);
@@ -326,7 +327,7 @@ export function registerFilesIpc(): void {
     'files:readMedia',
     async (_event, fileName: unknown): Promise<IpcResult<{ data: Uint8Array; mime: string }>> => {
       try {
-        if (typeof fileName !== 'string' || !fileName) throw new Error('文件名无效');
+        if (typeof fileName !== 'string' || !fileName) throw new Error(msg('err.file.badFileName'));
         return { ok: true, data: readMediaBytes(fileName) };
       } catch (err) {
         return toError(err);
@@ -336,10 +337,10 @@ export function registerFilesIpc(): void {
 
   ipcMain.handle('files:saveEdited', async (_event, raw: unknown): Promise<IpcResult<GeneratedImage>> => {
     try {
-      if (!raw || typeof raw !== 'object') throw new Error('保存参数无效');
+      if (!raw || typeof raw !== 'object') throw new Error(msg('err.file.badSaveArgs'));
       const input = raw as Partial<SaveEditedImageInput>;
-      if (typeof input.sourceAbsPath !== 'string') throw new Error('缺少原图路径');
-      if (typeof input.pngBase64 !== 'string') throw new Error('缺少图片数据');
+      if (typeof input.sourceAbsPath !== 'string') throw new Error(msg('err.file.noSourcePath'));
+      if (typeof input.pngBase64 !== 'string') throw new Error(msg('err.file.noImageData'));
       return {
         ok: true,
         data: saveEditedImage({

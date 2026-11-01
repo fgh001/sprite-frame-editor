@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { nativeImage } from 'electron';
 import { getDataDirs } from '../core/paths';
+import { msg } from '../core/msg';
 
 /**
  * 批量传统抠图（颜色键控）。
@@ -76,11 +77,11 @@ export function sampleBackground(buffer: Buffer): RgbColor | null {
 /** 对单张图做颜色键控，返回新的 PNG buffer */
 export function keyOut(buffer: Buffer, options: BatchKeyOutOptions): Buffer {
   const image = nativeImage.createFromBuffer(buffer);
-  if (image.isEmpty()) throw new Error('图片解码失败');
+  if (image.isEmpty()) throw new Error(msg('err.model.decodeFailed'));
   const { width, height } = image.getSize();
   const bitmap = image.toBitmap(); // BGRA，可写副本
   const total = width * height;
-  if (bitmap.length < total * 4) throw new Error('位图数据不完整');
+  if (bitmap.length < total * 4) throw new Error(msg('err.model.bitmapIncomplete'));
 
   const threshold = Math.max(0, options.tolerance) * 7;
   const colors = options.colors.length > 0 ? options.colors : [{ r: 255, g: 0, b: 255 }];
@@ -181,7 +182,7 @@ export interface BatchKeyOutResult {
  */
 export function keyOutDirectory(inDir: string, options: BatchKeyOutOptions): BatchKeyOutResult {
   const started = Date.now();
-  if (!fs.existsSync(inDir)) throw new Error(`帧目录不存在：${inDir}`);
+  if (!fs.existsSync(inDir)) throw new Error(msg('err.frames.dirMissing', { dir: inDir }));
 
   // 输出统一放 frames/outputs/，和抽帧集合（frames/sources/）分层
   const outDir = path.join(getDataDirs().frameOutputs, `${path.basename(inDir)}-key`);

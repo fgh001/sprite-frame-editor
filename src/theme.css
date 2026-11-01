@@ -133,8 +133,17 @@ h3 {
 }
 
 ::selection {
-  background: var(--accent-soft);
+  /* 原来用的是 --accent-soft（深色主题 rgba(59,130,246,0.15)、浅色 0.1），
+     在深色输入框里几乎看不出来，看起来就像「选不中」。改成对比明显的选区色。 */
+  background: rgba(59, 130, 246, 0.45);
   color: var(--text);
+}
+
+/* 输入框本身底色偏暗/偏亮，再淡一层就彻底看不见了，单独加强 */
+input::selection,
+textarea::selection {
+  background: #3b82f6;
+  color: #ffffff;
 }
 
 /* 键盘焦点统一蓝色环（鼠标点击不出现，避免满屏框） */
@@ -723,6 +732,48 @@ code {
   height: 30px;
 }
 
+/* 抠图模型下拉：区分「打包内置」和「仅开发测试」两档。
+   Chromium 的 option 支持 color / font-weight，折叠状态下也会带上这个样式。 */
+select option.opt-shipped {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+select option.opt-testonly {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+/* 批量抠图进行中的全局提示条：明确告诉用户「卡是因为它在跑，不是点不动」 */
+.global-busy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--warn-border, rgba(245, 158, 11, 0.45));
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.global-busy strong {
+  color: #f59e0b;
+  white-space: nowrap;
+}
+
+.global-busy span {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-dim);
+}
+
+.global-busy .btn {
+  flex: 0 0 auto;
+}
+
+
 .kb-empty {
   padding: 28px 8px;
   text-align: center;
@@ -758,6 +809,33 @@ code {
   margin: 10px 0;
   border-radius: 8px;
   border: 1px solid var(--border-soft);
+}
+
+/* 素材库「原始帧动画 / 抠图帧动画」栏：一张卡片里排 4 张小缩略图 */
+.kb-frame-thumbs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2px;
+  background: var(--bg);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 96px;
+}
+
+.kb-frame-thumbs img {
+  width: 100%;
+  height: 96px;
+  object-fit: contain;
+  background: var(--bg-elevated);
+}
+
+.kb-frame-name {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ================================================================

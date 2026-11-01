@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FrameOutputView, FrameProjectView } from '@shared/ipc';
 import { FramePlayerModal } from '../components/FramePlayerModal';
 import { setBusy, setProgress, tryStart } from '../state/busy';
+import { notifyDataChanged, useDataRefresh } from '../state/refresh';
+import { t, useLang, type Lang } from '../i18n';
 
 /**
  * 批量抠图页（独立页面）。
@@ -28,29 +30,44 @@ const MODEL_SECONDS: Record<string, number> = {
   'birefnet-massive': 120,
 };
 
-function humanDuration(seconds: number): string {
-  if (seconds < 60) return `约 ${Math.max(1, Math.round(seconds))} 秒`;
+function humanDuration(seconds: number, lang: Lang): string {
+  if (seconds < 60) return t('mt.dur.sec', lang, { n: String(Math.max(1, Math.round(seconds))) });
   const minutes = seconds / 60;
-  if (minutes < 60) return `约 ${Math.round(minutes)} 分钟`;
+  if (minutes < 60) return t('mt.dur.min', lang, { n: String(Math.round(minutes)) });
   const hours = Math.floor(minutes / 60);
   const rest = Math.round(minutes % 60);
-  return rest > 0 ? `约 ${hours} 小时 ${rest} 分钟` : `约 ${hours} 小时`;
+  return rest > 0
+    ? t('mt.dur.hourMin', lang, { h: String(hours), m: String(rest) })
+    : t('mt.dur.hour', lang, { h: String(hours) });
 }
 
+/**
+ * 打包版内置的模型（和 scripts/prune-models.mjs 的白名单一致）。
+ * 下拉里这几个标「打包内置」并高亮；其余只用于开发时对比测试，发布包里没有。
+ */
+export const SHIPPED_MODELS = new Set([
+  'u2net',
+  'isnet-general-use',
+  'birefnet-general-lite',
+  'birefnet-general',
+]);
+
 /** 下拉里的候选模型；实际可用性由 localModels（扫 data/models）决定 */
-const MODEL_OPTIONS: { name: string; note: string }[] = [
-  { name: 'u2net', note: '2 秒/张（快，推荐先试）' },
-  { name: 'isnet-general-use', note: '5 秒/张' },
-  { name: 'isnet-anime', note: '2 秒/张（动漫专用）' },
-  { name: 'birefnet-fp16', note: '40 秒/张（半精度）' },
-  { name: 'birefnet-lite-512', note: '20 秒/张（轻量）' },
-  { name: 'birefnet-toonout', note: '80 秒/张（卡通）' },
-  { name: 'birefnet-general', note: '80 秒/张（官网同款）' },
-  { name: 'bria-rmbg', note: '10 秒/张' },
-  { name: 'ben2', note: '80 秒/张' },
+const MODEL_OPTIONS: { name: string; noteKey: string }[] = [
+  { name: 'u2net', noteKey: 'mt.note.u2net' },
+  { name: 'birefnet-general-lite', noteKey: 'mt.note.birefnetLite' },
+  { name: 'birefnet-general', noteKey: 'mt.note.birefnetGeneral' },
+  { name: 'isnet-general-use', noteKey: 'mt.note.isnet' },
+  { name: 'isnet-anime', noteKey: 'mt.note.isnetAnime' },
+  { name: 'birefnet-fp16', noteKey: 'mt.note.birefnetFp16' },
+  { name: 'birefnet-lite-512', noteKey: 'mt.note.birefnetLite512' },
+  { name: 'birefnet-toonout', noteKey: 'mt.note.birefnetToonout' },
+  { name: 'bria-rmbg', noteKey: 'mt.note.briaRmbg' },
+  { name: 'ben2', noteKey: 'mt.note.ben2' },
 ];
 
 export function MatteStudioPage(): React.JSX.Element {
+  const [lang] = useLang();
   const [projects, setProjects] = useState<FrameProjectView[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [model, setModel] = useState('u2net');
@@ -63,6 +80,10 @@ export function MatteStudioPage(): React.JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const jobRef = useRef<string | null>(null);
+  /** 用户是否手动点过「取消选择」—— 取消后不再被自动选回第一个集合 */
+  const userClearedRef = useRef(false);
+  /** 本轮任务是否被用户手动停止（避免停止后又被「已抠 N 帧」的成功提示盖掉） */
+  const cancelledRef = useRef(false);
   /** 集合选择弹窗（下拉框看不出缩略图，改成弹窗） */
   const [pickerOpen, setPickerOpen] = useState(false);
   /** 正在播放预览的抠图结果（null = 没打开播放窗口） */
@@ -71,6 +92,19 @@ export function MatteStudioPage(): React.JSX.Element {
     frameUrls: string[];
     fps: number;
   } | null>(null);
+  /** 右边结果列表里正在改名的目录名（null = 没在改名） */
+  const [renamingOutput, setRenamingOutput] = useState<string | null>(null);
+  /** 改名输入框当前内容（只填基名，-matte / -key 后缀后端会自动补） */
+  const [renameOutputValue, setRenameOutputValue] = useState('');
+
+  /* 顶部提示只保留几秒就自动消失。
+     不这么做的话，上一次操作的记号（比如「已删除『xxx』」）会一直挂在界面上，
+     强制结束或开始新任务时看着像本次操作的反馈，很容易误读。 */
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   /**
    * 抠图方式：
@@ -104,6 +138,8 @@ export function MatteStudioPage(): React.JSX.Element {
     const list = projectRes.data.filter((item) => item.frameFileNames.length > 0);
     setProjects(list);
     setSelectedId((current) => {
+      // 用户主动「取消选择」后不再自动选第一个，否则下次刷新又会被选回去
+      if (current === null && userClearedRef.current) return null;
       if (current && list.some((item) => item.id === current)) return current;
       return list[0]?.id ?? null;
     });
@@ -112,6 +148,11 @@ export function MatteStudioPage(): React.JSX.Element {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  /* 帧动画页新增/改名/删除集合后，这一页的集合列表也要跟着刷 */
+  useDataRefresh(() => {
+    void loadProjects();
+  });
 
   // 查一下本地有哪些模型可用，下拉里把没下载的标出来
   useEffect(() => {
@@ -144,16 +185,18 @@ export function MatteStudioPage(): React.JSX.Element {
 
   const handleStart = async (): Promise<void> => {
     if (!selected) {
-      setError('先选一个帧集合');
+      setError(t('mt.msg.noSelection', lang));
       return;
     }
-    if (!tryStart('matte-studio', '批量抠图')) return;
-    if (!tryStart('matte-studio', '批量抠图')) return;
+    if (!tryStart('matte-studio', t('mt.title', lang))) return;
     setRunning(true);
     setError(null);
     setNotice(null);
+    cancelledRef.current = false;
+    // 开跑前先关掉正在播放的预览：抠图会占满 CPU，预览跟着卡顿，一起停掉更清爽
+    setPreviewOutput(null);
     setPercent(0);
-    setProgressText('正在加载模型（首次约 30 秒）…');
+    setProgressText(t('mt.msg.loadingModel', lang));
     const jobId = `${selected.id}-${Date.now()}`;
     jobRef.current = jobId;
 
@@ -171,16 +214,25 @@ export function MatteStudioPage(): React.JSX.Element {
         jobId,
       );
       if (!res.ok) {
-        setError(res.error);
+        // 手动停止时进程被杀，后端会以失败返回；这时不要当错误弹出来
+        if (!cancelledRef.current) setError(res.error);
         return;
       }
       const { total, elapsedMs, errors, outDir } = res.data;
-      setNotice(
-        `已抠 ${total} 帧，用时 ${humanDuration(elapsedMs / 1000)}${
-          errors.length > 0 ? `（${errors.length} 张失败）` : ''
-        }。输出：${outDir}`,
-      );
+      if (!cancelledRef.current) {
+        setNotice(
+          t('mt.msg.done', lang, {
+            frames: String(total),
+            time: humanDuration(elapsedMs / 1000, lang),
+            failed:
+              errors.length > 0 ? t('mt.msg.failed', lang, { count: String(errors.length) }) : '',
+            dir: outDir,
+          }),
+        );
+      }
       void loadProjects();
+      // 新的抠图结果出来了：素材库的「抠图帧动画」栏、循环裁剪页都要刷新
+      notifyDataChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -209,12 +261,23 @@ export function MatteStudioPage(): React.JSX.Element {
       }
       const { kept, removed, loopFrame, score } = preview.data;
       if (removed === 0) {
-        setNotice(`${name}：第 ${loopFrame} 帧就是最后一帧，没有多余帧需要裁。差异 ${score.toFixed(0)}`);
+        setNotice(
+          t('mt.msg.loopNone', lang, {
+            name,
+            frame: String(loopFrame),
+            score: score.toFixed(0),
+          }),
+        );
         return;
       }
       const ok = window.confirm(
-        `「${name}」找到循环点在帧 ${loopFrame}（与首帧差异 ${score.toFixed(0)}）。\n\n` +
-          `将保留前 ${kept} 帧，删除后面 ${removed} 帧。\n删除后无法恢复，确定继续吗？`,
+        t('mt.confirm.loopTitle', lang, {
+          name,
+          frame: String(loopFrame),
+          score: score.toFixed(0),
+          kept: String(kept),
+          removed: String(removed),
+        }),
       );
       if (!ok) return;
 
@@ -224,7 +287,11 @@ export function MatteStudioPage(): React.JSX.Element {
         return;
       }
       setNotice(
-        `${name}：已保留 ${done.data.kept} 帧，删掉 ${done.data.removed} 帧。首尾衔接，循环不会跳。`,
+        t('mt.msg.loopDone', lang, {
+          name,
+          kept: String(done.data.kept),
+          removed: String(done.data.removed),
+        }),
       );
       void loadProjects();
     } finally {
@@ -240,7 +307,7 @@ export function MatteStudioPage(): React.JSX.Element {
    */
   const handleRemoveOutput = async (dirName: string, count: number): Promise<void> => {
     const ok = window.confirm(
-      `确定删除「${dirName}」？\n\n会连同里面的 ${count} 帧一起删除，无法恢复。\n（源抽帧集合不受影响）`,
+      t('mt.confirm.removeOutput', lang, { name: dirName, count: String(count) }),
     );
     if (!ok) return;
     setError(null);
@@ -250,19 +317,47 @@ export function MatteStudioPage(): React.JSX.Element {
       setError(res.error);
       return;
     }
-    setNotice(`已删除「${dirName}」。`);
+    setNotice(t('mt.msg.removed', lang, { name: dirName }));
     void loadProjects();
   };
 
+  /**
+   * 重命名抠图结果目录（右边列表用）。
+   * -matte / -key 后缀由后端自动保留，用户只改基名；重名直接报错不覆盖。
+   */
+  const handleRenameOutput = async (dirName: string): Promise<void> => {
+    const next = renameOutputValue.trim();
+    if (!next) {
+      setRenamingOutput(null);
+      setRenameOutputValue('');
+      return;
+    }
+    setError(null);
+    setNotice(null);
+    const res = await window.skeletonElf.frames.renameOutput(dirName, next);
+    if (!res.ok) {
+      setError(t('mt.msg.renameFailed', lang, { error: res.error }));
+      return;
+    }
+    setRenamingOutput(null);
+    setRenameOutputValue('');
+    setNotice(t('mt.msg.renamed', lang, { name: res.data }));
+    void loadProjects();
+    notifyDataChanged();
+  };
+
   const handleCancel = async (): Promise<void> => {
+    // 先清掉上一次操作的提示，避免「已删除『xxx』」这种旧记号被误当成取消的结果
+    setNotice(null);
+    setError(null);
     const jobId = jobRef.current;
-    if (!jobId) return;
+    if (!jobId) {
+      setNotice(t('mt.msg.noTask', lang));
+      return;
+    }
+    cancelledRef.current = true;
     const res = await window.skeletonElf.files.rembgCancel(jobId);
-    setNotice(
-      res.ok && res.data.cancelled
-        ? '已强制结束。已经处理完的帧保留在输出目录里。'
-        : '任务已经结束，没有需要停止的进程。',
-    );
+    setNotice(res.ok && res.data.cancelled ? t('mt.msg.stopped', lang) : t('mt.msg.alreadyDone', lang));
   };
 
   /** 切到传统抠图时自动从第一帧取背景色，省得用户自己量 */
@@ -274,25 +369,30 @@ export function MatteStudioPage(): React.JSX.Element {
     const res = await window.skeletonElf.files.sampleFrameBackground(selected.absPath);
     if (res.ok) {
       setKeyColor(res.data);
-      setKeyHint(`已从第一帧取到背景色 rgb(${res.data.r}, ${res.data.g}, ${res.data.b})`);
+      setKeyHint(
+        t('mt.key.picked', lang, {
+          r: String(res.data.r),
+          g: String(res.data.g),
+          b: String(res.data.b),
+        }),
+      );
     } else {
-      setKeyHint(`自动取色失败（${res.error}），请手动选背景色`);
+      setKeyHint(t('mt.key.failed', lang, { error: res.error }));
     }
   };
 
   /** 传统抠图：颜色键控，输出到「<目录>-key」 */
   const handleKeyStart = async (): Promise<void> => {
     if (!selected) {
-      setError('先选一个帧集合');
+      setError(t('mt.msg.noSelection', lang));
       return;
     }
-    if (!tryStart('matte-studio', '批量抠图')) return;
-    if (!tryStart('matte-studio', '批量抠图')) return;
+    if (!tryStart('matte-studio', t('mt.title', lang))) return;
     setRunning(true);
     setError(null);
     setNotice(null);
     setPercent(0);
-    setProgressText('正在处理…');
+    setProgressText(t('mt.msg.processing', lang));
     try {
       const res = await window.skeletonElf.files.batchKeyOut(selected.absPath, {
         colors: [keyColor],
@@ -306,9 +406,13 @@ export function MatteStudioPage(): React.JSX.Element {
       }
       const { total, elapsedMs, skipped, outDir } = res.data;
       setNotice(
-        `已抠 ${total} 帧，用时 ${humanDuration(elapsedMs / 1000)}${
-          skipped.length > 0 ? `（${skipped.length} 张失败）` : ''
-        }。输出：${outDir}`,
+        t('mt.msg.keyDone', lang, {
+          frames: String(total),
+          time: humanDuration(elapsedMs / 1000, lang),
+          failed:
+            skipped.length > 0 ? t('mt.msg.failed', lang, { count: String(skipped.length) }) : '',
+          dir: outDir,
+        }),
       );
     } finally {
       setRunning(false);
@@ -323,22 +427,23 @@ export function MatteStudioPage(): React.JSX.Element {
       <div className="stack">
         <section className="card">
           <div className="card__head">
-            <h2>批量抠图</h2>
+            <h2>{t('mt.title', lang)}</h2>
             <button type="button" className="btn btn--ghost" onClick={() => void loadProjects()}>
-              刷新
+              {t('mt.refresh', lang)}
             </button>
           </div>
-          <p className="muted">
-            模型会自己识别前景，<b>不需要设背景色或容差</b>。结果输出到同级 <code>-matte</code> 目录，
-            原帧不动。
-          </p>
+          <p className="muted">{t('mt.intro', lang)}</p>
 
           {/* 集合用弹窗选：下拉框一多就没法看缩略图，分不清是哪段动画 */}
           <div className="field">
-            <span className="field__label">当前集合</span>
+            <span className="field__label">{t('mt.currentSet', lang)}</span>
             <div className="ref-strip">
               <code className="ref-strip__name">
-                {selected ? `${selected.name} · ${selected.frameFileNames.length} 帧` : '还没有选'}
+                {selected
+                  ? `${selected.name} · ${t('mt.picker.frames', lang, {
+                      count: String(selected.frameFileNames.length),
+                    })}`
+                  : t('mt.notSelected', lang)}
               </code>
               <button
                 type="button"
@@ -346,13 +451,31 @@ export function MatteStudioPage(): React.JSX.Element {
                 onClick={() => setPickerOpen(true)}
                 disabled={running}
               >
-                更换集合
+                {t('mt.changeSet', lang)}
+              </button>
+              {/* 取消选择：不然选错了只能重启应用，或者把那个帧集合文件夹删掉。
+                  顺带清掉上一次操作的提示，免得「已删除『xxx』」留在界面上。 */}
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  userClearedRef.current = true;
+                  setSelectedId(null);
+                  setNotice(null);
+                  setError(null);
+                  setPreviewOutput(null);
+                  setPercent(0);
+                  setProgressText('');
+                }}
+                disabled={running || !selected}
+              >
+                {t('mt.clearSelection', lang)}
               </button>
             </div>
           </div>
 
           <label className="field">
-            <span className="field__label">抠图方式</span>
+            <span className="field__label">{t('mt.method', lang)}</span>
             <select
               className="input select"
               value={mode}
@@ -361,69 +484,88 @@ export function MatteStudioPage(): React.JSX.Element {
               }
               disabled={running}
             >
-              <option value="model">模型（自动识别前景，推荐）</option>
-              <option value="key">传统（颜色键控，需设背景色）</option>
+              <option value="model">{t('mt.method.model', lang)}</option>
+              <option value="key">{t('mt.method.key', lang)}</option>
             </select>
           </label>
 
           {mode === 'model' ? (
             <>
               <label className="field">
-                <span className="field__label">模型</span>
+                <span className="field__label">{t('mt.model', lang)}</span>
                 <select
                   className="input select"
                   value={model}
                   onChange={(event) => setModel(event.target.value)}
                   disabled={running}
                 >
-                  {/* 本地已有的排前面并标「已就绪」；没下载的标出来，避免误点触发下载 */}
+                  {/* 打包内置的 3 个排最前并标「打包内置」（下拉里 ★ + 绿色，见 theme.css）；
+                      其余是开发对比用的测试模型，标「仅开发」并置灰。
+                      另外按本地是否已下载分两段，避免误点触发几百 MB 下载。 */}
                   {MODEL_OPTIONS.filter((item) => localModels.includes(item.name)).map((item) => (
-                    <option key={item.name} value={item.name}>
-                      {item.name} · {item.note} · 已就绪
+                    <option
+                      key={item.name}
+                      value={item.name}
+                      className={SHIPPED_MODELS.has(item.name) ? 'opt-shipped' : 'opt-testonly'}
+                    >
+                      {SHIPPED_MODELS.has(item.name) ? '★ ' : ''}
+                      {item.name} · {t(item.noteKey, lang)} · {t('mt.model.ready', lang)}
+                      {SHIPPED_MODELS.has(item.name) ? ` · ${t('mt.model.shipped', lang)}` : ` · ${t('mt.model.dev', lang)}`}
                     </option>
                   ))}
                   {MODEL_OPTIONS.filter((item) => !localModels.includes(item.name)).map((item) => (
-                    <option key={item.name} value={item.name}>
-                      {item.name} · {item.note} · 未下载
+                    <option
+                      key={item.name}
+                      value={item.name}
+                      className={SHIPPED_MODELS.has(item.name) ? 'opt-shipped' : 'opt-testonly'}
+                    >
+                      {SHIPPED_MODELS.has(item.name) ? '★ ' : ''}
+                      {item.name} · {t(item.noteKey, lang)} · {t('mt.model.missing', lang)}
                     </option>
                   ))}
                 </select>
                 {missingModel ? (
                   <span className="field__hint field__hint--warn">
-                    {model} 本地还没下载，点开始会先去 GitHub 拉权重（网络不好会 30 秒超时）。
-                    建议选带「已就绪」的模型。
+                    {t('mt.model.missingHint', lang, { model })}
                   </span>
                 ) : null}
               </label>
 
               <label className="field">
-                <span className="field__label">并行进程</span>
+                <span className="field__label">{t('mt.workers', lang)}</span>
                 <select
                   className="input select"
                   value={workers}
                   onChange={(event) => setWorkers(Number(event.target.value))}
                   disabled={running}
                 >
-                  <option value={1}>1 个（不并行，最省内存）</option>
-                  <option value={2}>2 个</option>
-                  <option value={3}>3 个（内存要够）</option>
+                  <option value={1}>{t('mt.workers.1', lang)}</option>
+                  <option value={2}>{t('mt.workers.2', lang)}</option>
+                  <option value={3}>{t('mt.workers.3', lang)}</option>
                 </select>
+                <span className="field__hint field__hint--warn">{t('mt.workers.hint', lang)}</span>
               </label>
 
               <span className="field__hint">
-                预计 <b>{frameCount > 0 ? humanDuration(estimate) : '—'}</b>
-                {frameCount > 0 ? (
-                  <>
-                    {' '}
-                    （{frameCount} 帧 × {MODEL_SECONDS[model] ?? 10} 秒 ÷ {workers} + 加载 30 秒）
-                  </>
-                ) : null}
+                {frameCount > 0
+                  ? t('mt.estimate', lang, {
+                      time: humanDuration(estimate, lang),
+                      frames: String(frameCount),
+                      seconds: String(MODEL_SECONDS[model] ?? 10),
+                      workers: String(workers),
+                    })
+                  : t('mt.estimate', lang, {
+                      time: '—',
+                      frames: '0',
+                      seconds: String(MODEL_SECONDS[model] ?? 10),
+                      workers: String(workers),
+                    })}
               </span>
             </>
           ) : (
             <>
               <span className="field__hint">
-                背景色要和角色主色拉开距离 —— 角色大面积是紫色就别用紫背景。
+                {t('mt.key.intro', lang)}
                 {keyHint ? (
                   <>
                     <br />
@@ -434,7 +576,7 @@ export function MatteStudioPage(): React.JSX.Element {
 
               <div className="input-row">
                 <label className="field">
-                  <span className="field__label">背景色</span>
+                  <span className="field__label">{t('mt.key.color', lang)}</span>
                   <span className="input-row">
                     <input
                       type="color"
@@ -458,7 +600,7 @@ export function MatteStudioPage(): React.JSX.Element {
                 </label>
                 <label className="field">
                   <span className="field__label">
-                    容差 <em className="field__saved">{keyTolerance}</em>
+                    {t('mt.key.tolerance', lang)} <em className="field__saved">{keyTolerance}</em>
                   </span>
                   <input
                     className="range"
@@ -474,7 +616,7 @@ export function MatteStudioPage(): React.JSX.Element {
 
               <div className="input-row">
                 <label className="field">
-                  <span className="field__label">模式</span>
+                  <span className="field__label">{t('mt.key.mode', lang)}</span>
                   <select
                     className="input select"
                     value={keyMode}
@@ -483,13 +625,13 @@ export function MatteStudioPage(): React.JSX.Element {
                     }
                     disabled={running}
                   >
-                    <option value="connected">仅连通背景（保护角色内部同色）</option>
-                    <option value="global">全局删除（夹缝也删，可能挖到角色）</option>
+                    <option value="connected">{t('mt.key.mode.connected', lang)}</option>
+                    <option value="global">{t('mt.key.mode.global', lang)}</option>
                   </select>
                 </label>
                 <label className="field">
                   <span className="field__label">
-                    边缘去除 <em className="field__saved">{keyEdgeTrim}px</em>
+                    {t('mt.key.edgeTrim', lang)} <em className="field__saved">{keyEdgeTrim}px</em>
                   </span>
                   <input
                     className="range"
@@ -503,9 +645,7 @@ export function MatteStudioPage(): React.JSX.Element {
                 </label>
               </div>
 
-              <span className="field__hint">
-                传统抠图是纯 CPU 像素运算，几十帧通常几秒跑完，不需要进度条。
-              </span>
+              <span className="field__hint">{t('mt.key.hint', lang)}</span>
             </>
           )}
 
@@ -521,7 +661,7 @@ export function MatteStudioPage(): React.JSX.Element {
                   </span>
                   <div className="actions">
                     <button type="button" className="btn btn--danger" onClick={() => void handleCancel()}>
-                      强制结束
+                      {t('mt.forceStop', lang)}
                     </button>
                   </div>
                 </>
@@ -539,9 +679,9 @@ export function MatteStudioPage(): React.JSX.Element {
               >
                 {frameCount > 0
                   ? mode === 'model'
-                    ? `开始抠这 ${frameCount} 帧`
-                    : `用传统方式抠这 ${frameCount} 帧`
-                  : '开始抠图'}
+                    ? t('mt.start', lang, { frames: String(frameCount) })
+                    : t('mt.startKey', lang, { frames: String(frameCount) })
+                  : t('mt.startPlain', lang)}
               </button>
             </div>
           )}
@@ -555,20 +695,37 @@ export function MatteStudioPage(): React.JSX.Element {
       <div className="stack frame-sidebar">
         <section className="card">
           <div className="card__head">
-            <h2>抠图结果</h2>
-            <span className="tag">{outputs.length} 个</span>
+            <h2>{t('mt.outputs.title', lang)}</h2>
+            <span className="tag">{t('mt.outputs.count', lang, { count: String(outputs.length) })}</span>
           </div>
           {outputs.length === 0 ? (
-            <p className="muted">
-              还没有抠图结果。左边选好集合和方式，点「开始」跑一次，产出会出现在这里。
-            </p>
+            <p className="muted">{t('mt.outputs.empty', lang)}</p>
           ) : (
             <div className="frame-projects">
               {outputs.map((output) => (
                 <div key={output.absPath} className="frame-project">
                   <div className="frame-project__head">
-                    <strong>{output.name}/</strong>
-                    <span className="tag">{output.kind === 'matte' ? '模型' : '传统'}</span>
+                    {renamingOutput === output.name ? (
+                      <input
+                        className="input"
+                        value={renameOutputValue}
+                        autoFocus
+                        placeholder={t('mt.rename.placeholder', lang)}
+                        onChange={(event) => setRenameOutputValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void handleRenameOutput(output.name);
+                          if (event.key === 'Escape') {
+                            setRenamingOutput(null);
+                            setRenameOutputValue('');
+                          }
+                        }}
+                      />
+                    ) : (
+                      <strong>{output.name}/</strong>
+                    )}
+                    <span className="tag">
+                      {output.kind === 'matte' ? t('mt.kind.model', lang) : t('mt.kind.key', lang)}
+                    </span>
                   </div>
                   <div className="frame-project__thumbs">
                     {/* 列表只显示前 6 张，完整序列留给播放窗口 */}
@@ -584,38 +741,81 @@ export function MatteStudioPage(): React.JSX.Element {
                     ))}
                   </div>
                   <span className="field__hint">
-                    {output.frameCount} 帧 · 来自 {output.sourceName}
+                    {t('mt.outputs.meta', lang, {
+                      frames: String(output.frameCount),
+                      source: output.sourceName,
+                    })}
                   </span>
                   <div className="actions">
                     <button
                       type="button"
                       className="btn btn--primary"
+                      disabled={running}
+                      title={running ? t('mt.previewBusy', lang) : undefined}
                       onClick={() =>
                         setPreviewOutput({
-                          title: `${output.name} · ${output.frameCount} 帧`,
+                          title: `${output.name} · ${t('mt.picker.frames', lang, {
+                            count: String(output.frameCount),
+                          })}`,
                           // 预览图最多只有 6 张，播放要完整序列：按 output 目录拼全部地址
                           frameUrls: output.previewUrls,
                           fps: 12,
                         })
                       }
                     >
-                      播放预览
+                      {t('mt.btn.preview', lang)}
                     </button>
                     <button
                       type="button"
                       className="btn btn--ghost"
                       title={output.absPath}
+                      disabled={running}
                       onClick={() => void window.skeletonElf.frames.openDir(output.name)}
                     >
-                      定位文件夹
+                      {t('mt.btn.openDir', lang)}
                     </button>
+                    {renamingOutput === output.name ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          onClick={() => void handleRenameOutput(output.name)}
+                        >
+                          {t('mt.btn.renameConfirm', lang)}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() => {
+                            setRenamingOutput(null);
+                            setRenameOutputValue('');
+                          }}
+                        >
+                          {t('mt.btn.cancel', lang)}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        disabled={running}
+                        title={t('mt.rename.title', lang)}
+                        onClick={() => {
+                          setRenamingOutput(output.name);
+                          // 输入框里只放基名，后缀由后端补回去
+                          setRenameOutputValue(output.name.replace(/-(matte|key)$/i, ''));
+                        }}
+                      >
+                        {t('mt.btn.rename', lang)}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn btn--ghost btn--danger"
                       disabled={running}
                       onClick={() => void handleRemoveOutput(output.name, output.frameCount)}
                     >
-                      删除
+                      {t('mt.btn.remove', lang)}
                     </button>
                   </div>
                 </div>
@@ -624,11 +824,9 @@ export function MatteStudioPage(): React.JSX.Element {
           )}
           <div className="actions">
             <button type="button" className="btn btn--ghost" onClick={() => void loadProjects()}>
-              刷新
+              {t('mt.refresh', lang)}
             </button>
-            <span className="field__hint">
-              手动去文件夹删了东西？点刷新重新扫一遍。
-            </span>
+            <span className="field__hint">{t('mt.refreshHint', lang)}</span>
           </div>
         </section>
       </div>
@@ -638,14 +836,14 @@ export function MatteStudioPage(): React.JSX.Element {
         <div className="modal-backdrop">
           <div className="modal">
             <header className="modal__head">
-              <h2>选择帧集合</h2>
+              <h2>{t('mt.picker.title', lang)}</h2>
               <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(false)}>
                 ×
               </button>
             </header>
             <div className="modal__body">
               {projects.length === 0 ? (
-                <p className="muted">还没有帧集合。先去「帧动画」页抽帧。</p>
+                <p className="muted">{t('mt.picker.empty', lang)}</p>
               ) : (
                 <div className="frame-projects">
                   {projects.map((item) => (
@@ -659,13 +857,16 @@ export function MatteStudioPage(): React.JSX.Element {
                         type="button"
                         className="frame-project__pick-area"
                         onClick={() => {
+                          userClearedRef.current = false;
                           setSelectedId(item.id);
                           setPickerOpen(false);
                         }}
                       >
                         <div className="frame-project__head">
                           <strong>{item.name}</strong>
-                          <span className="tag">{item.frameFileNames.length} 帧</span>
+                          <span className="tag">
+                            {t('mt.picker.frames', lang, { count: String(item.frameFileNames.length) })}
+                          </span>
                         </div>
                         <div className="frame-project__thumbs">
                           {item.frameUrls.slice(0, 6).map((url) => (
@@ -682,7 +883,13 @@ export function MatteStudioPage(): React.JSX.Element {
                         <span className="field__hint">
                           {item.fps} fps · {item.width}×{item.height}
                           {item.outputs.length > 0
-                            ? ` · 已有${item.outputs.map((o) => (o.kind === 'matte' ? '模型' : '传统')).join('/')}结果`
+                            ? ` · ${t('mt.picker.hasOutput', lang, {
+                                list: item.outputs
+                                  .map((o) =>
+                                    o.kind === 'matte' ? t('mt.kind.model', lang) : t('mt.kind.key', lang),
+                                  )
+                                  .join('/'),
+                              })}`
                             : ''}
                         </span>
                       </button>
@@ -692,10 +899,10 @@ export function MatteStudioPage(): React.JSX.Element {
               )}
             </div>
             <footer className="modal__foot">
-              <span className="field__hint">点一个集合即选定</span>
+              <span className="field__hint">{t('mt.picker.foot', lang)}</span>
               <div className="actions">
                 <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(false)}>
-                  取消
+                  {t('mt.btn.cancel', lang)}
                 </button>
               </div>
             </footer>

@@ -1,7 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { getDataDirs } from '../core/paths';
+// 这个文件里有局部变量叫 msg / text（rembg 的 JSON 输出行、原始行），所以取个不会撞的别名
+import { msg as t9n } from '../core/msg';
 
 /**
  * 通过便携 Python 调用**官方 rembg** 做抠图。
@@ -66,11 +69,14 @@ export async function probeRembg(python: string): Promise<{ available: boolean; 
     child.on('error', (err) => resolve({ available: false, message: err.message }));
     child.on('close', (code) => {
       if (code === 0 && stdout.includes('ok')) {
-        resolve({ available: true, message: 'rembg 就绪' });
+        resolve({ available: true, message: t9n('err.rembg.ready') });
         return;
       }
       const tail = (stderr || stdout).trim().split('\n').slice(-4).join(' / ');
-      resolve({ available: false, message: tail || `rembg 探测失败（退出码 ${code}）` });
+      resolve({
+        available: false,
+        message: tail || t9n('err.rembg.probeFailed', { code: String(code) }),
+      });
     });
   });
 }
@@ -84,9 +90,7 @@ export async function removeBackgroundWithRembg(
 ): Promise<RembgResult> {
   const python = findPyshim();
   if (!python) {
-    throw new Error(
-      '没有找到 pyshim/python.exe。请把便携 Python 放到项目的 pyshim/ 目录（或用 npm run setup:rembg 准备）。',
-    );
+    throw new Error(t9n('err.rembg.noPyshim'));
   }
 
   const dirs = getDataDirs();
@@ -102,13 +106,13 @@ export async function removeBackgroundWithRembg(
   let tempInput: string | null = null;
   if (absPath.startsWith('data:')) {
     const commaIndex = absPath.indexOf(',');
-    if (commaIndex < 0) throw new Error('图片数据格式不正确');
+    if (commaIndex < 0) throw new Error(t9n('err.rembg.badImageData'));
     const base64 = absPath.slice(commaIndex + 1);
     tempInput = path.join(cacheDir, `in-${stamp}.png`);
     fs.writeFileSync(tempInput, Buffer.from(base64, 'base64'));
     inputPath = tempInput;
   } else if (!absPath || !fs.existsSync(absPath)) {
-    throw new Error(`图片文件不存在：${absPath || '(空路径)'}`);
+    throw new Error(t9n('err.rembg.imageMissing', { path: absPath || '(empty)' }));
   }
 
   const args = [path.join(projectRoot(), 'scripts', 'rembg_cli.py'), inputPath, outPath];
@@ -127,7 +131,9 @@ export async function removeBackgroundWithRembg(
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
-    child.on('error', (err) => reject(new Error(`启动 rembg 失败：${err.message}`)));
+    child.on('error', (err) =>
+      reject(new Error(t9n('err.rembg.spawnFailed', { error: err.message }))),
+    );
     child.on('close', (code) => {
       if (code === 0) {
         resolve(stdout.trim());
@@ -135,11 +141,11 @@ export async function removeBackgroundWithRembg(
       }
       // rembg/onnxruntime 的报错通常在 stderr 末尾几行
       const tail = stderr.trim().split('\n').slice(-6).join('\n');
-      reject(new Error(tail || `rembg 退出码 ${code}`));
+      reject(new Error(tail || t9n('err.rembg.exitCode', { code: String(code) })));
     });
   });
 
-  if (!fs.existsSync(outPath)) throw new Error('rembg 没有生成输出文件');
+  if (!fs.existsSync(outPath)) throw new Error(t9n('err.rembg.noOutput'));
   const buffer = fs.readFileSync(outPath);
   fs.unlinkSync(outPath);
   // 内存帧模式下顺手清掉临时输入文件
@@ -170,6 +176,8 @@ export interface BatchProgress {
   done: number;
   total: number;
   file: string;
+  /** 附加说明（例如「内存不足，并行数已自动降低」），只用于界面提示 */
+  message?: string;
 }
 
 /**
@@ -266,6 +274,36 @@ export function hasRunningBatch(jobId: string): boolean {
 }
 
 /**
+ * 按可用内存给并行进程数封顶。
+ *
+ * 为什么必须卡这一道：`--workers N` 是 N 个**独立 Python 进程**，每个进程各自
+ * 加载一份完整模型（birefnet-general 权重 928 MB，加上 onnxruntime arena 和
+ * 中间张量，实测每个进程常驻 1.5–2.5 GB）。开 3 个并行就是 5–8 GB，
+ * 物理内存不够时 Windows 会疯狂换页，整台机器卡死（不是程序崩溃，是「死机」）。
+ *
+ * 返回实际可用的并行数；拿不到模型大小时按保守值处理。
+ */
+function clampWorkersByMemory(model: string | undefined, requested: number): number {
+  if (!requested || requested <= 1) return 1;
+
+  let modelBytes = 0;
+  try {
+    const file = path.join(getDataDirs().root, 'models', `${model ?? 'u2net'}.onnx`);
+    modelBytes = fs.statSync(file).size;
+  } catch {
+    modelBytes = 0;
+  }
+  // 模型还没下载（rembg 会现场拉）或读不到大小：按最保守的 2 个走
+  if (modelBytes === 0) return Math.min(requested, 2);
+
+  // 每个 worker 按权重的 2.5 倍估算常驻内存（arena + 中间张量 + PIL 图像）
+  const perWorker = modelBytes * 2.5;
+  // 只用可用内存的 70%，给系统和 Electron 本体留余量
+  const allowed = Math.max(1, Math.floor((os.freemem() * 0.7) / perWorker));
+  return Math.min(requested, allowed);
+}
+
+/**
  * 批量抠图：**只启动一次 Python、只加载一次模型**，处理整个目录。
  * 逐张 spawn 会让每张都重新加载模型（30 秒起步），批量会慢到无法使用。
  *
@@ -281,9 +319,9 @@ export async function removeBackgroundBatch(
 ): Promise<{ total: number; elapsedMs: number; errors: string[] }> {
   const python = findPyshim();
   if (!python) {
-    throw new Error('没有找到 pyshim/python.exe，无法批量抠图');
+    throw new Error(t9n('err.rembg.noPyshimBatch'));
   }
-  if (!fs.existsSync(inDir)) throw new Error(`输入目录不存在：${inDir}`);
+  if (!fs.existsSync(inDir)) throw new Error(t9n('err.rembg.inputDirMissing', { dir: inDir }));
   fs.mkdirSync(outDir, { recursive: true });
 
   const args = [
@@ -296,7 +334,22 @@ export async function removeBackgroundBatch(
   if (options.model) args.push('--model', options.model);
   if (options.alphaMatting) args.push('--alpha-matting');
   if (options.noDecontaminate) args.push('--no-decontaminate');
-  if (options.workers && options.workers > 1) args.push('--workers', String(options.workers));
+
+  /* 并行数按可用内存封顶：每个 worker 是独立进程、各自加载一份模型，
+     内存不够时会把整台机器拖到卡死。超了就在这里降下来，并在进度里说明。 */
+  const requested = options.workers ?? 1;
+  const workers = clampWorkersByMemory(options.model, requested);
+  if (requested > workers) {
+    const freeGb = (os.freemem() / 1024 / 1024 / 1024).toFixed(1);
+    const note = t9n('err.rembg.memoryNote', {
+      free: freeGb,
+      requested: String(requested),
+      workers: String(workers),
+    });
+    console.warn(`[rembg] ${note}`);
+    onProgress?.({ done: 0, total: 0, file: '', message: note });
+  }
+  if (workers > 1) args.push('--workers', String(workers));
 
   const errors: string[] = [];
   const started = Date.now();
@@ -336,7 +389,7 @@ export async function removeBackgroundBatch(
           else if (msg.type === 'progress' && onProgress) {
             onProgress({ done: msg.done ?? 0, total: msg.total ?? total, file: msg.file ?? '' });
           } else if (msg.type === 'error') {
-            errors.push(`${msg.file ?? '?'}: ${msg.message ?? '未知错误'}`);
+            errors.push(`${msg.file ?? '?'}: ${msg.message ?? t9n('err.rembg.unknownError')}`);
           } else if (msg.type === 'done') {
             total = msg.total ?? total;
           }
@@ -351,12 +404,12 @@ export async function removeBackgroundBatch(
     });
     child.on('error', (err) => {
       runningBatches.delete(key);
-      reject(new Error(`启动 rembg 失败：${err.message}`));
+      reject(new Error(t9n('err.rembg.spawnFailed', { error: err.message })));
     });
     child.on('close', (code) => {
       runningBatches.delete(key);
       if (cancelled) {
-        reject(new Error('已手动停止批量抠图'));
+        reject(new Error(t9n('err.rembg.cancelled')));
         return;
       }
       if (code === 0) {
@@ -364,7 +417,7 @@ export async function removeBackgroundBatch(
         return;
       }
       const tail = stderr.trim().split('\n').slice(-6).join('\n');
-      reject(new Error(tail || `rembg 批量处理退出码 ${code}`));
+      reject(new Error(tail || t9n('err.rembg.batchExitCode', { code: String(code) })));
     });
   });
 

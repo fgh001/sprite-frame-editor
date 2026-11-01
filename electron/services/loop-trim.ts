@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { nativeImage } from 'electron';
+import { msg } from '../core/msg';
 
 /**
  * 对磁盘上的帧目录做「找循环点 + 裁掉多余尾部帧」。
@@ -107,17 +108,17 @@ export function trimLoopInDirectory(
    */
   keepCycles?: number,
 ): TrimLoopResult {
-  if (!fs.existsSync(dir)) throw new Error(`目录不存在：${dir}`);
+  if (!fs.existsSync(dir)) throw new Error(msg('err.frames.dirMissing', { dir }));
 
   const names = fs
     .readdirSync(dir)
     .filter((name) => /^frame_\d+\.png$/i.test(name))
     .sort();
-  if (names.length < 3) throw new Error('帧太少（至少 3 帧）才能找循环点');
+  if (names.length < 3) throw new Error(msg('err.frames.tooFewLoop'));
 
   // 一次把所有帧读成指纹，避免后面反复解码同一帧（窗口比对要重复用到开头几帧）
   const prints: (Float32Array | null)[] = names.map((name) => fingerprint(path.join(dir, name)));
-  if (!prints[0]) throw new Error('第 1 帧解码失败');
+  if (!prints[0]) throw new Error(msg('err.frames.badFirstFrame'));
 
   // 把 0–100 的偏好换算成搜索起点：偏好越大，起点越靠后（最多到 70% 处）
   const ratio = Math.max(0, Math.min(100, prefer)) / 100;

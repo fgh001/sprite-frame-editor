@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { allProgress, busySnapshot, subscribeBusy, type BusyKey } from '../state/busy';
+import { t, useLang } from '../i18n';
 import logoUrl from '../assets/logo.png';
 
 export type NavKey =
@@ -10,32 +11,33 @@ export type NavKey =
   | 'matte-studio'
   | 'loop-trim'
   | 'knowledge'
-  | 'model-settings';
+  | 'settings';
 
 interface NavItem {
   key: NavKey;
-  label: string;
-  hint: string;
+  /** 文案 key，用 t() 取（侧边栏是外壳的一部分，三语都要有） */
+  labelKey: string;
+  hintKey: string;
   /** 该页是否已经真正实现 */
   ready: boolean;
 }
 
-const GROUPS: { title: string; items: NavItem[] }[] = [
+const GROUPS: { titleKey: string; items: NavItem[] }[] = [
   {
-    title: '工作流',
+    titleKey: 'nav.group.workspace',
     items: [
-      { key: 'pipeline', label: '生成流水线', hint: '总览 · 五步各自独立', ready: true },
-      { key: 'image-studio', label: '图像生成', hint: '文生图 / 生成素材入库', ready: true },
-      { key: 'video-studio', label: '循环视频', hint: '图片 → 无缝循环视频', ready: true },
-      { key: 'frame-studio', label: '帧动画', hint: '视频抽帧 → 帧序列', ready: true },
-      { key: 'matte-studio', label: '批量抠图', hint: '整个帧集合一键去背景', ready: true },
-      { key: 'loop-trim', label: '找循环帧', hint: '自动裁掉循环点之后的多余帧', ready: true },
-      { key: 'knowledge', label: '素材库', hint: '图片 / 视频 / AI 参考', ready: true },
+      { key: 'pipeline', labelKey: 'nav.pipeline', hintKey: 'nav.pipeline.hint', ready: true },
+      { key: 'image-studio', labelKey: 'nav.imageStudio', hintKey: 'nav.imageStudio.hint', ready: true },
+      { key: 'video-studio', labelKey: 'nav.videoStudio', hintKey: 'nav.videoStudio.hint', ready: true },
+      { key: 'frame-studio', labelKey: 'nav.frameStudio', hintKey: 'nav.frameStudio.hint', ready: true },
+      { key: 'matte-studio', labelKey: 'nav.matteStudio', hintKey: 'nav.matteStudio.hint', ready: true },
+      { key: 'loop-trim', labelKey: 'nav.loopTrim', hintKey: 'nav.loopTrim.hint', ready: true },
+      { key: 'knowledge', labelKey: 'nav.knowledge', hintKey: 'nav.knowledge.hint', ready: true },
     ],
   },
   {
-    title: '设置',
-    items: [{ key: 'model-settings', label: '模型设置', hint: '服务商 / 能力槽位 / 余额', ready: true }],
+    titleKey: 'nav.group.system',
+    items: [{ key: 'settings', labelKey: 'nav.settings', hintKey: 'nav.settings.hint', ready: true }],
   },
 ];
 
@@ -47,6 +49,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ active, onSelect, dataDir, onOpenDataDir }: SidebarProps): React.JSX.Element {
+  const [lang] = useLang();
   // 哪些页面有长任务在跑（生图 / 生成视频 / 批量抠图），在导航上转圈提示
   const [busyKeys, setBusyKeys] = useState<BusyKey[]>(() => busySnapshot());
   const [progressMap, setProgressMap] = useState<Record<string, number | null>>(() => allProgress());
@@ -65,17 +68,17 @@ export function Sidebar({ active, onSelect, dataDir, onOpenDataDir }: SidebarPro
     <aside className="sidebar">
       <div className="sidebar__brand">
         {/* 应用头像：打包进 bundle 的固定图片，不支持运行时替换 */}
-        <img className="sidebar__logo" src={logoUrl} alt="精灵帧动画编辑器" />
+        <img className="sidebar__logo" src={logoUrl} alt={t('app.name', lang)} />
         <div>
-          <strong>精灵帧动画编辑器</strong>
-          <span>视频 → 帧动画 → 帧序列</span>
+          <strong>{t('app.name', lang)}</strong>
+          <span>{t('app.tagline', lang)}</span>
         </div>
       </div>
 
-      <nav className="sidebar__nav" aria-label="主导航">
+      <nav className="sidebar__nav" aria-label={t('sidebar.nav.label', lang)}>
         {GROUPS.map((group) => (
-          <div className="sidebar__group" key={group.title}>
-            <div className="sidebar__group-title">{group.title}</div>
+          <div className="sidebar__group" key={group.titleKey}>
+            <div className="sidebar__group-title">{t(group.titleKey, lang)}</div>
             {group.items.map((item) => (
               <button
                 key={item.key}
@@ -86,13 +89,13 @@ export function Sidebar({ active, onSelect, dataDir, onOpenDataDir }: SidebarPro
               >
                 <span className="sidebar__item-label">
                   {isRunning(item.key) ? <i className="sidebar__spinner" aria-hidden="true" /> : null}
-                  {item.label}
+                  {t(item.labelKey, lang)}
                   {isRunning(item.key) && progressMap[item.key] !== null && progressMap[item.key] !== undefined
                     ? <em className="sidebar__percent">{progressMap[item.key]}%</em>
                     : null}
-                  {item.ready ? null : <em className="tag tag--pending">待实现</em>}
+                  {item.ready ? null : <em className="tag tag--pending">{t('nav.todo', lang)}</em>}
                 </span>
-                <span className="sidebar__item-hint">{item.hint}</span>
+                <span className="sidebar__item-hint">{t(item.hintKey, lang)}</span>
               </button>
             ))}
           </div>
@@ -100,12 +103,12 @@ export function Sidebar({ active, onSelect, dataDir, onOpenDataDir }: SidebarPro
       </nav>
 
       <div className="sidebar__footer">
-        <div className="sidebar__footer-title">数据目录（便携）</div>
+        <div className="sidebar__footer-title">{t('sidebar.dataDir', lang)}</div>
         <div className="sidebar__path" title={dataDir}>
-          {dataDir ?? '正在读取…'}
+          {dataDir ?? t('sidebar.reading', lang)}
         </div>
         <button type="button" className="btn btn--ghost btn--block" onClick={onOpenDataDir} disabled={!dataDir}>
-          打开数据目录
+          {t('sidebar.openDataDir', lang)}
         </button>
       </div>
     </aside>

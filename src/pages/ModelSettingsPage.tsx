@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { BalanceInfo, ModelInfo, SaveSlotInput, SlotKey, SlotSettingsView, TestResult, UsageStats } from '@shared/ipc';
-import { CAPABILITY_LABELS, describeBalanceSupport, getProviderPreset, presetsFor, type ProviderId } from '@shared/providers';
+import { CAPABILITY_LABELS, getProviderPreset, presetsFor, type ProviderId } from '@shared/providers';
+import { t, useLang } from '../i18n';
 
 const SLOTS: SlotKey[] = ['chat', 'image', 'video'];
 
@@ -40,6 +41,14 @@ interface ModelSettingsPageProps {
 }
 
 export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettingsPageProps = {}): React.JSX.Element {
+  const [lang] = useLang();
+  /** 槽位显示名走三语字典（CAPABILITY_LABELS 是写死的中文，只用于兜底） */
+  const slotLabel = (slot: SlotKey): string =>
+    slot === 'chat'
+      ? t('ms.slot.chat', lang)
+      : slot === 'image'
+        ? t('ms.slot.image', lang)
+        : t('ms.slot.video', lang);
   const [views, setViews] = useState<Record<SlotKey, SlotSettingsView> | null>(null);
   const [forms, setForms] = useState<SlotForms | null>(null);
   const [activeSlot, setActiveSlot] = useState<SlotKey>('chat');
@@ -185,7 +194,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
 
     // 只有真的改过参数才需要确认；仅切换服务商不打扰
     if (dirty) {
-      const go = window.confirm('当前服务商的改动还没保存，切过去会丢失。\n\n确定 = 放弃改动并切换；取消 = 留在当前服务商');
+      const go = window.confirm(t('ms.confirmSwitch', lang));
       if (!go) return;
     }
 
@@ -219,7 +228,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
     if (!result.ok) {
       // 落盘失败就回滚表单，别让界面显示一个没生效的服务商
       setForms((prev) => (prev ? { ...prev, [activeSlot]: current } : prev));
-      setToast({ kind: 'err', text: `切换服务商失败：${result.error}` });
+      setToast({ kind: 'err', text: t('ms.err.switchFailed', lang, { error: result.error }) });
       return;
     }
     applyView(result.data);
@@ -244,7 +253,10 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
       return false;
     }
     applyView(result.data);
-    setToast({ kind: 'ok', text: `已保存（${preset.label}）：${result.data.configPath}` });
+    setToast({
+      kind: 'ok',
+      text: t('ms.msg.saved', lang, { provider: preset.label, path: result.data.configPath }),
+    });
     if (activeSlot === 'chat' && preset.balance !== 'none') void refreshBalance();
     return true;
   };
@@ -264,11 +276,11 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
 
     // 前置检查：没 Key 就拉取，服务端只会回一个含糊的 401，用户不知道要先存 Key。
     // 这里直接拦住并说清楚下一步怎么做。
-    const requirement = preset.requiresKey ? '必填' : '可选';
+    const requirement = preset.requiresKey ? t('ms.required', lang) : t('ms.optional', lang);
     if (preset.requiresKey && !activeKeyEntry) {
       setToast({
         kind: 'err',
-        text: `还没有保存 API Key。请先在上面粘贴 ${preset.label} 的 Key 并点「保存」，再用「拉取模型列表」——模型接口需要鉴权（这个服务商 Key ${requirement}）。`,
+        text: t('ms.err.noKeyForList', lang, { provider: preset.label, requirement }),
       });
       return;
     }
@@ -281,7 +293,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
       return;
     }
     setModels(result.data);
-    if (result.data.length === 0) setToast({ kind: 'err', text: '接口没有返回任何模型（部分平台不开放 /models）' });
+    if (result.data.length === 0) setToast({ kind: 'err', text: t('ms.err.emptyList', lang) });
     else if (form && !form.model) patchForm({ model: result.data[0].id });
   };
 
@@ -293,7 +305,12 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
       return;
     }
     setViews((prev) => (prev ? { ...prev, [result.data.slot]: result.data } : prev));
-    setToast({ kind: 'ok', text: enabled ? `已启用「${CAPABILITY_LABELS[activeSlot]}」槽位` : `已停用「${CAPABILITY_LABELS[activeSlot]}」槽位` });
+    setToast({
+      kind: 'ok',
+      text: enabled
+        ? t('ms.enabled', lang, { slot: slotLabel(activeSlot) })
+        : t('ms.disabled', lang, { slot: slotLabel(activeSlot) }),
+    });
   };
 
   const handleClearKey = async (): Promise<void> => {
@@ -305,11 +322,18 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
       return;
     }
     applyView(cleared.data);
-    setToast({ kind: 'ok', text: `已删除 ${preset.label} 的本地 API Key（其他服务商的 Key 未受影响）` });
+    setToast({
+      kind: 'ok',
+      text: t('ms.api.clearOk', lang, { label: preset.label }),
+    });
   };
 
-  if (loadError) return <div className="banner banner--error">读取设置失败：{loadError}</div>;
-  if (!views || !forms || !view || !form) return <div className="card">正在读取设置…</div>;
+  if (loadError) {
+    return <div className="banner banner--error">{t('ms.loadError', lang, { error: loadError })}</div>;
+  }
+  if (!views || !forms || !view || !form) {
+    return <div className="card">{t('ms.loading', lang)}</div>;
+  }
 
   const supportsBalance = preset.balance !== 'none';
 
@@ -325,7 +349,9 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                 className={`slot-tab${activeSlot === slot ? ' is-active' : ''}`}
                 onClick={() => {
                   if (slot !== activeSlot && dirty) {
-                    const go = window.confirm('当前「' + CAPABILITY_LABELS[activeSlot] + '」的改动还没保存，切换后会丢失。\n\n确定 = 放弃改动并切换；取消 = 留在本页');
+                    const go = window.confirm(
+                      t('ms.confirm.switchSlot', lang, { current: slotLabel(activeSlot) }),
+                    );
                     if (!go) return;
                   }
                   setActiveSlot(slot);
@@ -334,7 +360,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                   setModels([]);
                 }}
               >
-                {CAPABILITY_LABELS[slot]}
+                {slotLabel(slot)}
                 <span className={`dot${views[slot].keyEntries.length > 0 ? ' dot--ok' : ''}`} />
               </button>
             ))}
@@ -342,24 +368,21 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
 
           {/* 三个槽位分别能干什么、不能干什么 —— 抠图最容易混淆，这里说清楚 */}
           <div className="banner banner--info">
-            <b>各槽位的分工（别选错）</b>
+            <b>{t('ms.roles.title', lang)}</b>
             <ul className="slot-roles">
               <li>
-                <b>文本 / 推理</b>：写提示词、右侧 AI 助手问答。<b>纯文本模型看不到图</b>
-                （DeepSeek 这类）。
+                <b>{t('ms.slot.chat', lang)}</b>
+                {t('ms.roles.chat', lang)}
               </li>
               <li>
-                <b>图像</b>：<b>生成</b>图片（Seedream / gpt-image）。它只会画，<b>不能分析图片</b>，
-                所以【不能拿来抠图】。
+                <b>{t('ms.slot.image', lang)}</b>
+                {t('ms.roles.image', lang)}
               </li>
               <li>
-                <b>视频</b>：图生视频（Seedance）。
+                <b>{t('ms.slot.video', lang)}</b>
+                {t('ms.roles.video', lang)}
               </li>
-              <li>
-                <b>AI 抠图（编辑器里的「AI 抠图」栏）</b>需要的是<b>支持图像输入的视觉模型</b>：
-                豆包 <code>doubao-seed-1-6</code>、GPT-4o、Qwen-VL 这类<b>多模态</b>模型。
-                普通文本模型和图像生成模型都不行。
-              </li>
+              <li>{t('ms.roles.matting', lang)}</li>
             </ul>
           </div>
 
@@ -369,41 +392,36 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
               checked={view.enabled}
               onChange={(event) => void handleToggleEnabled(event.target.checked)}
             />
-            使用「{CAPABILITY_LABELS[activeSlot]}」槽位
-            {view.enabled ? null : <span className="hint">（已停用，配置已隐藏，也不会被调用）</span>}
+            {t('ms.enable', lang, { slot: slotLabel(activeSlot) })}
+            {view.enabled ? null : <span className="hint">{t('ms.enabledHint', lang)}</span>}
           </label>
 
-          {view.enabled ? (
-            <>
-              <div className="field">
-                <span className="field__label">服务商</span>
-                <select
-                  className="input select"
-                  value={form.providerId}
-                  onChange={(event) => void handleProviderChange(event.target.value as ProviderId)}
-                >
-                  {presetsFor(activeSlot).map((option) => {
-                    const saved = view.keyEntries.some((entry) => entry.providerId === option.id);
-                    return (
-                      <option key={option.id} value={option.id}>
-                        {option.label}
-                        {saved ? ' · 已存 Key' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
-                <span className="field__hint">
-                  {activeKeyEntry
-                    ? `${preset.label} 已经有保存的 Key，切换过去可以直接用。`
-                    : `${preset.label} 还没有 Key，切换后需要粘贴并保存。`}
-                </span>
-              </div>
-            </>
-          ) : null}
+          {/* 提示：接入任何模型只需要三样东西 —— URL、Key、模型名 */}
+          <p className="muted">{t('ms.api.threeThings', lang)}</p>
         </section>
 
         <section className="card" style={view.enabled ? undefined : { display: 'none' }}>
-          <h2>接口与密钥</h2>
+          <h2>{t('ms.api.title', lang)}</h2>
+
+          {/* 服务商只作为「快速填入 URL」的预设，不再是必选项 */}
+          <div className="field">
+            <span className="field__label">{t('ms.provider.preset', lang)}</span>
+            <select
+              className="input select"
+              value={form.providerId}
+              onChange={(event) => void handleProviderChange(event.target.value as ProviderId)}
+            >
+              {presetsFor(activeSlot).map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                  {option.baseUrl ? ` · ${option.baseUrl}` : ''}
+                </option>
+              ))}
+            </select>
+            <span className="field__hint">
+              {preset.baseUrl ? t('ms.provider.presetHint', lang) : t('ms.provider.customHint', lang)}
+            </span>
+          </div>
 
           <label className="field">
             <span className="field__label">Base URL</span>
@@ -411,15 +429,17 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
               className="input"
               value={form.baseUrl}
               spellCheck={false}
-              placeholder="例如 https://ark.cn-beijing.volces.com/api/v3"
+              placeholder={t('ms.api.baseUrlPlaceholder', lang)}
               onChange={(event) => patchForm({ baseUrl: event.target.value })}
             />
           </label>
 
           <div className="field">
             <span className="field__label">
-              {preset.label} 的 API Key
-              {activeKeyEntry ? null : <em className="field__saved field__saved--empty">未配置</em>}
+              {t('ms.api.keyLabel', lang, { label: preset.label })}
+              {activeKeyEntry ? null : (
+                <em className="field__saved field__saved--empty">{t('ms.api.notConfigured', lang)}</em>
+              )}
             </span>
 
             {activeKeyEntry ? (
@@ -428,11 +448,13 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                 <div className="key-box__value">
                   <code>{activeKeyEntry.keyMask}</code>
                   <span className={`tag ${activeKeyEntry.keyStorage === 'encrypted' ? 'tag--ok' : 'tag--warn'}`}>
-                    {activeKeyEntry.keyStorage === 'encrypted' ? '系统加密' : '明文回退'}
+                    {activeKeyEntry.keyStorage === 'encrypted'
+                      ? t('ms.api.storageEncrypted', lang)
+                      : t('ms.api.storagePlain', lang)}
                   </span>
                 </div>
                 <button type="button" className="btn btn--ghost btn--danger" onClick={() => setConfirmClearKey(true)}>
-                  删除 API Key
+                  {t('ms.api.deleteKey', lang)}
                 </button>
               </div>
             ) : (
@@ -443,35 +465,30 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                   value={form.apiKeyInput}
                   spellCheck={false}
                   autoComplete="off"
-                  placeholder="粘贴该服务商的 API Key"
+                  placeholder={t('ms.api.keyPlaceholder', lang)}
                   onChange={(event) => patchForm({ apiKeyInput: event.target.value, keyDirty: true })}
                 />
                 <button type="button" className="btn btn--ghost" onClick={() => patchForm({ showKey: !form.showKey })}>
-                  {form.showKey ? '隐藏' : '显示'}
+                  {form.showKey ? t('ms.api.hide', lang) : t('ms.api.show', lang)}
                 </button>
               </div>
             )}
 
             {confirmClearKey ? (
               <div className="key-confirm">
-                <span className="key-confirm__text">
-                  删除后无法恢复，需要重新粘贴 Key 才能继续用该服务商。确定删除？
-                </span>
+                <span className="key-confirm__text">{t('ms.api.confirmDelete', lang)}</span>
                 <div className="key-confirm__actions">
                   <button type="button" className="btn btn--danger" onClick={() => void handleClearKey()}>
-                    确认删除
+                    {t('ms.api.confirmYes', lang)}
                   </button>
                   <button type="button" className="btn btn--ghost" onClick={() => setConfirmClearKey(false)}>
-                    取消
+                    {t('ms.btn.cancel', lang)}
                   </button>
                 </div>
               </div>
             ) : null}
 
-            <span className="field__hint">
-              每个服务商的 Key 分开保存：给豆包填过 Key 后切回 DeepSeek，看到的仍是 DeepSeek 自己那把。要换 Key
-              就先删除，再粘贴新的。
-            </span>
+            <span className="field__hint">{t('ms.api.keyHint', lang)}</span>
             {copySourceSlot ? (
               <div className="actions">
                 <button
@@ -489,11 +506,17 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                         return;
                       }
                       applyView(res.data);
-                      setToast({ kind: 'ok', text: `已复用「${CAPABILITY_LABELS[copySourceSlot]}」槽位的 Key` });
+                      setToast({
+                        kind: 'ok',
+                        text: t('ms.api.reuseOk', lang, { slot: slotLabel(copySourceSlot) }),
+                      });
                     })();
                   }}
                 >
-                  复用「{CAPABILITY_LABELS[copySourceSlot]}」槽位的 {preset.label} Key
+                  {t('ms.api.reuse', lang, {
+                    slot: slotLabel(copySourceSlot),
+                    provider: preset.label,
+                  })}
                 </button>
               </div>
             ) : null}
@@ -501,8 +524,12 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
 
           <div className="field">
             <span className="field__label">
-              {CAPABILITY_LABELS[activeSlot]}模型
-              {models.length > 0 ? <em className="field__saved">已拉取 {models.length} 个</em> : null}
+              {t('ms.model.label', lang, { slot: slotLabel(activeSlot) })}
+              {models.length > 0 ? (
+                <em className="field__saved">
+                  {t('ms.model.pulled', lang, { count: String(models.length) })}
+                </em>
+              ) : null}
             </span>
             <div className="input-row">
               <select
@@ -514,7 +541,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                 {form.model && !models.some((model) => model.id === form.model) ? (
                   <option value={form.model}>{form.model}</option>
                 ) : null}
-                {!form.model ? <option value="">请先拉取模型列表再选择</option> : null}
+                {!form.model ? <option value="">{t('ms.model.pickFirst', lang)}</option> : null}
                 {models.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.id}
@@ -527,20 +554,28 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                 onClick={() => void handleLoadModels()}
                 disabled={busy === 'models'}
               >
-                {busy === 'models' ? '拉取中…' : models.length > 0 ? '刷新列表' : '拉取模型列表'}
+                {busy === 'models'
+                  ? t('ms.model.pulling', lang)
+                  : models.length > 0
+                    ? t('ms.model.refresh', lang)
+                    : t('ms.model.pull', lang)}
               </button>
             </div>
-            <span className="field__hint">模型从列表里选择，避免手打错名字。先保存 Key，再点「拉取模型列表」。</span>
+            <span className="field__hint">{t('ms.model.hint', lang)}</span>
           </div>
 
           <div className="actions">
             <button type="button" className="btn btn--primary" onClick={() => void handleSave()} disabled={busy === 'save'}>
-              {busy === 'save' ? '保存中…' : '保存设置'}
+              {busy === 'save' ? t('ms.btn.saving', lang) : t('ms.btn.save', lang)}
             </button>
             <button type="button" className="btn" onClick={() => void handleTest()} disabled={busy === 'test'}>
-              {busy === 'test' ? '测试中…' : '测试连接'}
+              {busy === 'test' ? t('ms.btn.testing', lang) : t('ms.btn.test', lang)}
             </button>
-            {dirty ? <span className="hint hint--warn">有未保存的修改</span> : <span className="hint">已是最新</span>}
+            {dirty ? (
+              <span className="hint hint--warn">{t('ms.dirty', lang)}</span>
+            ) : (
+              <span className="hint">{t('ms.clean', lang)}</span>
+            )}
           </div>
 
           {toast ? <div className={`banner banner--${toast.kind}`}>{toast.text}</div> : null}
@@ -552,18 +587,26 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
         {activeSlot === 'chat' ? (
           <section className="card">
             <div className="card__head">
-              <h2>{supportsBalance ? '账户余额' : '用量与消耗'}</h2>
+              <h2>{supportsBalance ? t('ms.balance.title', lang) : t('ms.usage.title', lang)}</h2>
               <button
                 type="button"
                 className="btn btn--ghost"
                 onClick={() => void (supportsBalance ? refreshBalance() : refreshUsage())}
                 disabled={supportsBalance ? balanceLoading || !view.hasKey : usageLoading}
               >
-                {supportsBalance ? (balanceLoading ? '查询中…' : '刷新余额') : usageLoading ? '统计中…' : '刷新用量'}
+                {supportsBalance
+                  ? balanceLoading
+                    ? t('ms.balance.querying', lang)
+                    : t('ms.balance.refresh', lang)
+                  : usageLoading
+                    ? t('ms.usage.loading', lang)
+                    : t('ms.usage.refresh', lang)}
               </button>
             </div>
 
-            <div className="balance-note">{describeBalanceSupport(preset.balance)}</div>
+            <div className="balance-note">
+              {supportsBalance ? t('ms.balance.supported', lang) : t('ms.balance.unsupported', lang)}
+            </div>
 
             {supportsBalance ? (
               <>
@@ -577,22 +620,32 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                           <strong>{line.total}</strong>
                         </div>
                         <div className="balance-line__detail">
-                          {line.granted !== undefined ? <span>赠送 / 代金券 {line.granted}</span> : null}
-                          {line.toppedUp !== undefined ? <span>充值 / 现金 {line.toppedUp}</span> : null}
+                          {line.granted !== undefined ? (
+                            <span>{t('ms.balance.granted', lang, { value: line.granted })}</span>
+                          ) : null}
+                          {line.toppedUp !== undefined ? (
+                            <span>{t('ms.balance.toppedUp', lang, { value: line.toppedUp })}</span>
+                          ) : null}
                         </div>
                       </div>
                     ))}
                     <div className="balance-foot">
                       <span className={`tag ${balance.available ? 'tag--ok' : 'tag--warn'}`}>
-                        {balance.available ? '账户可用' : '余额不足或账户不可用'}
+                        {balance.available
+                          ? t('ms.balance.available', lang)
+                          : t('ms.balance.unavailable', lang)}
                       </span>
-                      <span>更新于 {formatTime(balance.fetchedAt)}</span>
+                      <span>{t('ms.balance.updated', lang, { time: formatTime(balance.fetchedAt) })}</span>
                     </div>
                     {balance.message ? <div className="balance-note">{balance.message}</div> : null}
                   </div>
                 ) : null}
                 {!balance && !balanceError && !balanceLoading ? (
-                  <div className="balance-note">{view.hasKey ? '点击右上角「刷新余额」查询' : '保存 API Key 后即可查询余额'}</div>
+                  <div className="balance-note">
+                    {view.hasKey
+                      ? t('ms.balance.hintRefresh', lang)
+                      : t('ms.balance.hintSaveKey', lang)}
+                  </div>
                 ) : null}
               </>
             ) : null}
@@ -601,14 +654,18 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
               <div className="balance-body">
                 <div className="balance-line">
                   <div className="balance-line__total">
-                    <span className="balance-line__currency">已生成</span>
+                    <span className="balance-line__currency">{t('ms.usage.generated', lang)}</span>
                     <strong>{usage.totalImages}</strong>
-                    <span className="balance-line__currency">张</span>
+                    <span className="balance-line__currency">{t('ms.usage.unit', lang)}</span>
                   </div>
                   <div className="balance-line__detail">
-                    <span>已入库 {usage.knowledgeImages}</span>
-                    <span>缓存未入库 {usage.cachedFiles}</span>
-                    <span>{usage.estimatedCost === null ? '估算花费：单价未知' : `估算花费 ¥${usage.estimatedCost}`}</span>
+                    <span>{t('ms.usage.inLib', lang, { count: String(usage.knowledgeImages) })}</span>
+                    <span>{t('ms.usage.cached', lang, { count: String(usage.cachedFiles) })}</span>
+                    <span>
+                      {usage.estimatedCost === null
+                        ? t('ms.usage.noCost', lang)
+                        : t('ms.usage.cost', lang, { value: String(usage.estimatedCost) })}
+                    </span>
                   </div>
                 </div>
                 {usage.byModel.length > 0 ? (
@@ -617,7 +674,10 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                       <div key={stat.model}>
                         <span title={stat.model}>{stat.model}</span>
                         <strong>
-                          {stat.count} 张{stat.unitPrice === undefined ? '' : ` · ¥${stat.unitPrice}/张`}
+                          {stat.count} {t('ms.usage.unit', lang)}
+                          {stat.unitPrice === undefined
+                            ? ''
+                            : t('ms.usage.perImage', lang, { price: String(stat.unitPrice) })}
                         </strong>
                       </div>
                     ))}
@@ -630,26 +690,19 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
             ) : null}
 
             {!supportsBalance ? (
-              <p className="muted balance-note">
-                豆包 / 火山方舟没有公开的余额查询 API（余额只能在控制台看），所以这里显示的是本地统计的生成量与估算花费。
-              </p>
+              <p className="muted balance-note">{t('ms.usage.note', lang)}</p>
             ) : null}
           </section>
         ) : (
           <section className="card card--hint">
-            <h3>{CAPABILITY_LABELS[activeSlot]}槽位</h3>
-            <p className="muted">
-              这个槽位与文本槽位互相独立，可以填不同服务商、不同 Key。图像生成会读取这里的配置，结果自动落盘到
-              <code>data/knowledge/files</code>（勾选存入素材库时）或 <code>data/cache/generated</code>。
-            </p>
+            <h3>{t('ms.slotHint.title', lang, { slot: slotLabel(activeSlot) })}</h3>
+            <p className="muted">{t('ms.slotHint.body', lang)}</p>
           </section>
         )}
 
         <section className="card card--hint">
-          <h3>Key 存在哪</h3>
-          <p className="muted">
-            所有槽位配置都保存在 <code>{view.configPath}</code>；Key 按「槽位 × 服务商」分别保存并加密，渲染层只显示掩码。
-          </p>
+          <h3>{t('ms.key.title', lang)}</h3>
+          <p className="muted">{t('ms.key.body', lang, { path: view.configPath })}</p>
         </section>
       </div>
     </div>

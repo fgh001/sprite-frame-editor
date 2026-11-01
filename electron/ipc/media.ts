@@ -5,18 +5,19 @@ import type { EditableImage, GeneratedImage, KnowledgeItem, SaveEditedImageInput
 import { getDataDirs } from '../core/paths';
 import { addItems, createId, listItems, locateMediaFile } from '../core/knowledge';
 import { computeUsage } from '../core/usage';
+import { msg } from '../core/msg';
 
 const MAX_IMAGE_BYTES = 30 * 1024 * 1024;
 const THUMB_MAX_EDGE = 512;
 
 /** 所有文件操作都限制在便携数据目录内，避免渲染层传任意路径 */
 function assertInsideData(target: unknown): string {
-  if (typeof target !== 'string' || !target.trim()) throw new Error('文件路径无效');
+  if (typeof target !== 'string' || !target.trim()) throw new Error(msg('err.file.badPath'));
   const root = getDataDirs().root;
   const resolved = path.resolve(target);
   const rel = path.relative(root, resolved);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error('不允许访问数据目录以外的文件');
+    throw new Error(msg('err.file.outsideData'));
   }
   return resolved;
 }
@@ -59,7 +60,7 @@ export function openDataDir(kind: 'knowledge' | 'cache' | 'root'): void {
 /** 在资源管理器里定位某个文件 */
 export function revealFile(target: string): void {
   const resolved = assertInsideData(target);
-  if (!fs.existsSync(resolved)) throw new Error('文件不存在');
+  if (!fs.existsSync(resolved)) throw new Error(msg('err.file.missing'));
   shell.showItemInFolder(resolved);
 }
 
@@ -67,7 +68,7 @@ export function revealFile(target: string): void {
 export function readImageAsDataUrl(absPath: string): EditableImage {
   const resolved = assertInsideData(absPath);
   const stat = fs.statSync(resolved);
-  if (stat.size > MAX_IMAGE_BYTES) throw new Error('图片过大（上限 30MB）');
+  if (stat.size > MAX_IMAGE_BYTES) throw new Error(msg('err.file.imageTooLarge30'));
   const buffer = fs.readFileSync(resolved);
   const image = nativeImage.createFromBuffer(buffer);
   const size = image.isEmpty() ? { width: 0, height: 0 } : image.getSize();
@@ -87,15 +88,15 @@ export function readImageAsDataUrl(absPath: string): EditableImage {
 
 /** 保存编辑后的 PNG：写入素材库并登记来源 */
 export function saveEditedImage(input: SaveEditedImageInput): GeneratedImage {
-  if (!input || typeof input !== 'object') throw new Error('保存参数无效');
+  if (!input || typeof input !== 'object') throw new Error(msg('err.file.badSaveArgs'));
 
   const sourceAbs = assertInsideData(input.sourceAbsPath);
   const base64 = String(input.pngBase64 ?? '').replace(/^data:image\/png;base64,/, '');
-  if (!base64) throw new Error('编辑结果为空');
+  if (!base64) throw new Error(msg('err.file.emptyEdit'));
 
   const buffer = Buffer.from(base64, 'base64');
-  if (buffer.length === 0) throw new Error('编辑结果为空');
-  if (buffer.length > MAX_IMAGE_BYTES) throw new Error('编辑结果过大（上限 30MB）');
+  if (buffer.length === 0) throw new Error(msg('err.file.emptyEdit'));
+  if (buffer.length > MAX_IMAGE_BYTES) throw new Error(msg('err.file.editTooLarge'));
 
   const dirs = getDataDirs();
   const id = createId('edit');
@@ -123,7 +124,10 @@ export function saveEditedImage(input: SaveEditedImageInput): GeneratedImage {
     tags: [],
     note,
     source: 'ai-generated',
-    origin: { model: 'edited', prompt: note || `编辑自 ${path.basename(sourceAbs)}` },
+    origin: {
+      model: 'edited',
+      prompt: note || msg('err.file.editedFrom', { name: path.basename(sourceAbs) }),
+    },
     createdAt: new Date().toISOString(),
     asReference: false,
   };
@@ -168,7 +172,7 @@ const MEDIA_MIME: Record<string, string> = {
  */
 export function readMediaBytes(fileName: string): { data: Uint8Array; mime: string } {
   const abs = locateMediaFile(fileName);
-  if (!abs) throw new Error('素材文件不存在');
+  if (!abs) throw new Error(msg('err.file.assetMissing'));
   const buffer = fs.readFileSync(abs);
   const mime = MEDIA_MIME[path.extname(abs).toLowerCase()] ?? 'application/octet-stream';
   return { data: new Uint8Array(buffer), mime };

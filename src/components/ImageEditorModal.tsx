@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EditableImage, GeneratedImage } from '@shared/ipc';
 import { FEATURE_AI_MATTING } from '@shared/features';
+import { t, useLang } from '../i18n';
 
 interface ImageEditorModalProps {
   image: EditableImage;
@@ -205,6 +206,7 @@ export function ImageEditorModal({
   onApply,
   onApplyAll,
 }: ImageEditorModalProps): React.JSX.Element {
+  const [lang] = useLang();
   const sourceRef = useRef<ImageData | null>(null);
   /** 源图逐像素 HSL 缓存（图片加载时算一次，滑杆拖动时复用） */
   const hslRef = useRef<{ h: Float32Array; s: Float32Array; l: Float32Array; width: number; height: number } | null>(
@@ -1401,13 +1403,13 @@ export function ImageEditorModal({
       <div className="modal">
         <header className="modal__head">
           <div>
-            <h2>编辑图片</h2>
+            <h2>{t('ie.title', lang)}</h2>
             <p className="muted">
               {image.fileName} · {sizeLabel}
             </p>
           </div>
           <button type="button" className="btn btn--ghost" onClick={onClose}>
-            关闭
+            {t('kb.btn.cancel', lang)}
           </button>
         </header>
 
@@ -1425,7 +1427,7 @@ export function ImageEditorModal({
                 100%
               </button>
               <button type="button" className="btn btn--ghost" onClick={fitToStage}>
-                适应窗口
+                {t('ie.fit', lang)}
               </button>
               <span className="editor-toolbar__sep" />
               <button
@@ -1433,23 +1435,23 @@ export function ImageEditorModal({
                 className="btn btn--ghost"
                 onClick={undo}
                 disabled={undoStackRef.current.length === 0}
-                title="撤销（Ctrl+Z）"
+                title={t('ie.undoTitle', lang)}
               >
-                ↶ 撤销
+                {t('ie.undo', lang)}
               </button>
               <button
                 type="button"
                 className="btn btn--ghost"
                 onClick={redo}
                 disabled={redoStackRef.current.length === 0}
-                title="重做（Ctrl+Y）"
+                title={t('ie.redoTitle', lang)}
               >
-                ↷ 重做
+                {t('ie.redo', lang)}
               </button>
-              <span className="field__hint">滚轮缩放（跟随鼠标）· 拖拽平移</span>
+              <span className="field__hint">{t('ie.zoomHint', lang)}</span>
               {/* 验收用：把结果合成到不同背景，紫边/黑边/白边一眼可见 */}
               <span className="editor-checkbg">
-                <span>检查背景</span>
+                <span>{t('ie.check.label', lang)}</span>
                 <button
                   type="button"
                   className="btn btn--ghost"
@@ -1457,9 +1459,9 @@ export function ImageEditorModal({
                     const s = stageRef.current;
                     if (s) s.style.background = '';
                   }}
-                  title="透明棋盘格"
+                  title={t('ie.check.checkerTitle', lang)}
                 >
-                  棋盘
+                  {t('ie.check.checker', lang)}
                 </button>
                 <button
                   type="button"
@@ -1468,9 +1470,9 @@ export function ImageEditorModal({
                     const s = stageRef.current;
                     if (s) s.style.background = '#ffffff';
                   }}
-                  title="白色背景：检查暗边 / 黑边"
+                  title={t('ie.check.whiteTitle', lang)}
                 >
-                  白
+                  {t('ie.check.white', lang)}
                 </button>
                 <button
                   type="button"
@@ -1479,9 +1481,9 @@ export function ImageEditorModal({
                     const s = stageRef.current;
                     if (s) s.style.background = '#000000';
                   }}
-                  title="黑色背景：检查亮边 / 白边"
+                  title={t('ie.check.blackTitle', lang)}
                 >
-                  黑
+                  {t('ie.check.black', lang)}
                 </button>
                 <button
                   type="button"
@@ -1490,9 +1492,9 @@ export function ImageEditorModal({
                     const s = stageRef.current;
                     if (s) s.style.background = '#808080';
                   }}
-                  title="灰色背景：检查整体色偏"
+                  title={t('ie.check.grayTitle', lang)}
                 >
-                  灰
+                  {t('ie.check.gray', lang)}
                 </button>
                 <button
                   type="button"
@@ -1501,9 +1503,9 @@ export function ImageEditorModal({
                     const s = stageRef.current;
                     if (s) s.style.background = '#00b140';
                   }}
-                  title="绿幕背景：检查紫色光圈（与紫色对比最强）"
+                  title={t('ie.check.greenTitle', lang)}
                 >
-                  绿
+                  {t('ie.check.green', lang)}
                 </button>
               </span>
             </div>
@@ -1549,7 +1551,7 @@ export function ImageEditorModal({
                   ) : null}
                 </div>
               ) : (
-                <div className="editor-stage__placeholder">正在解码图片…</div>
+                <div className="editor-stage__placeholder">{t('ie.decoding', lang)}</div>
               )}
 
               {/* 笔刷光标圈：按当前缩放在画面上显示实际擦除范围 */}
@@ -1570,7 +1572,9 @@ export function ImageEditorModal({
                 <div className="editor-magnifier">
                   <canvas ref={magCanvasRef} width={144} height={144} />
                   <span className="editor-magnifier__meta">
-                    {magnifier ? `${magnifier.x}, ${magnifier.y}` : '移动鼠标查看像素'}
+                    {magnifier
+                      ? `${magnifier.x}, ${magnifier.y}`
+                      : t('ie.magnifier.move', lang)}
                   </span>
                 </div>
               ) : null}
@@ -1585,14 +1589,14 @@ export function ImageEditorModal({
                 className={`editor-tab${activeTab === 'local' ? ' is-active' : ''}`}
                 onClick={() => setActiveTab('local')}
               >
-                本地模型抠图
+                {t('ie.tab.local', lang)}
               </button>
               <button
                 type="button"
                 className={`editor-tab${activeTab === 'classic' ? ' is-active' : ''}`}
                 onClick={() => setActiveTab('classic')}
               >
-                传统抠图
+                {t('ie.tab.classic', lang)}
               </button>
             </div>
 
@@ -1605,9 +1609,9 @@ export function ImageEditorModal({
                   if (originalSnapshotRef.current) applySnapshot(originalSnapshotRef.current);
                 }}
                 disabled={!originalSnapshotRef.current}
-                title="回到刚打开时的原图"
+                title={t('ie.restore.originalTitle', lang)}
               >
-                ↺ 恢复原图
+                {t('ie.restore.original', lang)}
               </button>
               <button
                 type="button"
@@ -1617,17 +1621,19 @@ export function ImageEditorModal({
                   if (last) applySnapshot(last);
                 }}
                 disabled={!lastResultRef.current[activeTab]}
-                title="回到当前这一栏最后一次生成的结果"
+                title={t('ie.restore.lastTitle', lang)}
               >
-                ↻ 恢复上次结果
+                {t('ie.restore.last', lang)}
               </button>
             </div>
 
             {/* 手动橡皮擦：三个模块共用，点哪擦哪 */}
             <div className="field">
               <span className="field__label">
-                手动橡皮擦
-                <em className="field__saved">{eraserOn ? '已开启' : '已关闭'}</em>
+                {t('ie.eraser.title', lang)}
+                <em className="field__saved">
+                  {eraserOn ? t('ie.eraser.on', lang) : t('ie.eraser.off', lang)}
+                </em>
               </span>
               <div className="actions">
                 <button
@@ -1635,15 +1641,15 @@ export function ImageEditorModal({
                   className={`btn ${eraserOn ? 'btn--primary' : 'btn--ghost'}`}
                   onClick={() => setEraserOn((prev) => !prev)}
                 >
-                  {eraserOn ? '橡皮擦：开' : '橡皮擦：关'}
+                  {eraserOn ? t('ie.eraser.toggleOn', lang) : t('ie.eraser.toggleOff', lang)}
                 </button>
                 <button type="button" className="btn btn--ghost" onClick={clearManual} disabled={!hasManual}>
-                  清除手擦
+                  {t('ie.eraser.clear', lang)}
                 </button>
               </div>
               <label className="field">
                 <span className="field__label">
-                  笔刷大小 <em className="field__saved">{brushSize}px</em>
+                  {t('ie.eraser.size', lang)} <em className="field__saved">{brushSize}px</em>
                 </span>
                 <div className="brush-row">
                   {/* 笔刷大小可视化：按比例显示粗细 */}
@@ -1666,10 +1672,7 @@ export function ImageEditorModal({
                   />
                 </div>
               </label>
-              <span className="field__hint">
-                开启后左键按下/拖动即擦除（按住不动也能擦）；关闭时左键仍是「点选删除该颜色区域」。
-                想精修边缘就把图放大到 400% 以上，配合右下角观察窗。
-              </span>
+              <span className="field__hint">{t('ie.eraser.hint', lang)}</span>
             </div>
 
             {/* ===== 栏 1：本地模型抠图 ===== */}
@@ -1677,38 +1680,56 @@ export function ImageEditorModal({
               className="field"
               style={activeTab === 'local' && FEATURE_AI_MATTING ? undefined : { display: 'none' }}
             >
-              <span className="field__label">本地模型抠图（ONNX，纯本机推理，不联网不花钱）</span>
+              <span className="field__label">{t('ie.local.label', lang)}</span>
               <span className="field__hint">
-                <b>背景选黑色最佳，白色次之</b> —— 模型在纯黑背景上主体边界最清晰（亮度差最大），
-                纯白也可用但略逊，因为浅色部位（白衣、高光）容易和背景糊在一起；
-                彩色背景最差（尤其和角色同色系），会把主体一起判成背景。
+                {t('ie.local.hint', lang)}
                 {birefnetReady === false ? (
                   <>
                     <br />
-                    ⚠ 没找到 <code>pyshim/python.exe</code> 或 rembg 未安装，请运行{' '}
-                    <code>npm run setup:rembg</code>
+                    {t('ie.local.missing', lang)}
                   </>
                 ) : null}
               </span>
 
               <label className="field">
-                <span className="field__label">模型</span>
+                <span className="field__label">{t('mt.model', lang)}</span>
                 <select
                   className="input select"
                   value={rembgModel}
                   onChange={(event) => setRembgModel(event.target.value)}
                   disabled={aiBusy}
                 >
-                  <option value="birefnet-general">birefnet-general · 官网同款（准，慢）</option>
-                  <option value="birefnet-general-lite">birefnet-general-lite · 轻量版</option>
-                  <option value="u2net">u2net · rembg 默认（快）</option>
-                  <option value="isnet-general-use">isnet-general-use</option>
-                  <option value="isnet-anime">isnet-anime · 动漫专用</option>
-                  <option value="birefnet-portrait">birefnet-portrait · 人像</option>
-                  <option value="birefnet-massive">birefnet-massive · 高精度</option>
-                  <option value="bria-rmbg">bria-rmbg</option>
-                  <option value="silueta">silueta · 最轻</option>
-                  <option value="u2netp">u2netp · 最小</option>
+                  {/* ★ = 打包版内置（scripts/prune-models.mjs 白名单）；其余是开发对比用的测试模型 */}
+                  <option value="birefnet-general" className="opt-shipped">
+                    ★ birefnet-general · {t('mt.model.shipped', lang)}
+                  </option>
+                  <option value="birefnet-general-lite" className="opt-shipped">
+                    ★ birefnet-general-lite · {t('mt.model.shipped', lang)}
+                  </option>
+                  <option value="u2net" className="opt-shipped">
+                    ★ u2net · {t('mt.model.shipped', lang)}
+                  </option>
+                  <option value="isnet-general-use" className="opt-shipped">
+                    ★ isnet-general-use · {t('mt.model.shipped', lang)}
+                  </option>
+                  <option value="isnet-anime" className="opt-testonly">
+                    isnet-anime · {t('mt.model.dev', lang)}
+                  </option>
+                  <option value="birefnet-portrait" className="opt-testonly">
+                    birefnet-portrait · {t('mt.model.dev', lang)}
+                  </option>
+                  <option value="birefnet-massive" className="opt-testonly">
+                    birefnet-massive · {t('mt.model.dev', lang)}
+                  </option>
+                  <option value="bria-rmbg" className="opt-testonly">
+                    bria-rmbg · {t('mt.model.dev', lang)}
+                  </option>
+                  <option value="silueta" className="opt-testonly">
+                    silueta · {t('mt.model.dev', lang)}
+                  </option>
+                  <option value="u2netp" className="opt-testonly">
+                    u2netp · {t('mt.model.dev', lang)}
+                  </option>
                 </select>
               </label>
 
@@ -1719,7 +1740,7 @@ export function ImageEditorModal({
                   onChange={(event) => setAlphaMatting(event.target.checked)}
                   disabled={aiBusy}
                 />
-                alpha matting（边缘更细，慢一倍以上）
+                {t('ie.local.alphaMatting', lang)}
               </label>
               <label className="checkbox">
                 <input
@@ -1728,7 +1749,7 @@ export function ImageEditorModal({
                   onChange={(event) => setNoDecontaminate(!event.target.checked)}
                   disabled={aiBusy}
                 />
-                边缘去污染（修掉黑边/白边，官方 rembg 不做这一步）
+                {t('ie.local.decontaminate', lang)}
               </label>
 
               <div className="actions">
@@ -1738,23 +1759,23 @@ export function ImageEditorModal({
                   onClick={() => void handleAiMatting()}
                   disabled={aiBusy}
                 >
-                  {aiBusy ? '抠图中…（可能要 1 分钟以上）' : '开始抠图'}
+                  {aiBusy ? t('ie.local.running', lang) : t('ie.local.run', lang)}
                 </button>
                 {aiResult ? (
                   <button type="button" className="btn btn--ghost" onClick={() => applyAiPreview(aiResult)}>
-                    恢复 AI 结果
+                    {t('ie.local.restoreAi', lang)}
                   </button>
                 ) : null}
               </div>
               <span className="field__hint">
-                对动漫立绘不一定完美，建议勾上下面的「用 AI 保护主体」：删什么由颜色决定，AI 只负责别把角色删掉。
-                {aiElapsed > 0 ? ` 上次耗时 ${(aiElapsed / 1000).toFixed(1)}s。` : ''}
+                {t('ie.local.hint2', lang)}
+                {aiElapsed > 0 ? t('ie.local.lastElapsed', lang, { seconds: (aiElapsed / 1000).toFixed(1) }) : ''}
               </span>
               {aiError ? <div className="banner banner--error">{aiError}</div> : null}
               {aiResult ? (
                 <label className="checkbox">
                   <input type="checkbox" checked={aiProtect} onChange={(event) => setAiProtect(event.target.checked)} />
-                  用 AI 保护主体（颜色接近背景但 AI 判定是角色的像素不删）
+                  {t('ie.local.protect', lang)}
                 </label>
               ) : null}
             </div>
@@ -1762,15 +1783,15 @@ export function ImageEditorModal({
             {/* ===== 栏 2：传统颜色抠图 ===== */}
             <details className="editor-group" style={activeTab === 'classic' ? undefined : { display: 'none' }} open={activeTab === 'classic'}>
               <summary>
-                颜色抠图（传统方法）· <em>按颜色删，纯色背景最快</em>
+                {t('ie.classic.summary', lang)} · <em>{t('ie.classic.summaryHint', lang)}</em>
               </summary>
               <label className="checkbox">
                 <input type="checkbox" checked={removeBg} onChange={(event) => setRemoveBg(event.target.checked)} />
-                启用颜色抠图
+                {t('ie.classic.enable', lang)}
               </label>
 
               <div className="field">
-                <span className="field__label">去除范围</span>
+                <span className="field__label">{t('ie.classic.scope', lang)}</span>
               <div className="bg-swatches">
                 <button
                   type="button"
@@ -1781,7 +1802,7 @@ export function ImageEditorModal({
                     setRemoveMode('global');
                   }}
                 >
-                  全局
+                  {t('ie.classic.global', lang)}
                 </button>
                 <button
                   type="button"
@@ -1792,17 +1813,15 @@ export function ImageEditorModal({
                     setRemoveMode('connected');
                   }}
                 >
-                  仅连通背景
+                  {t('ie.classic.connected', lang)}
                 </button>
               </div>
-              <span className="field__hint">
-                全局 = 整张图里所有选中颜色都删（夹缝也能清）；仅连通背景 = 只删与画布四边相连的部分，保护主体内部同色部位。
-              </span>
+              <span className="field__hint">{t('ie.classic.scopeHint', lang)}</span>
             </div>
 
             <div className="field">
               <span className="field__label">
-                颜色容错
+                {t('ie.classic.tolerance', lang)}
                 <em className="field__saved">{tolerance}</em>
               </span>
               <div className="input-row">
@@ -1831,14 +1850,12 @@ export function ImageEditorModal({
                   }}
                 />
               </div>
-              <span className="field__hint">
-                按「色相优先」匹配：色调相同、只亮暗不同的颜色（深紫 / 亮洋红）会被当成同色删掉，而灰色、白色这类色调不同的不会被误删。背景越花越调大。
-              </span>
+              <span className="field__hint">{t('ie.classic.toleranceHint', lang)}</span>
             </div>
 
             <div className="field">
               <span className="field__label">
-                边缘去除
+                {t('ie.classic.edgeTrim', lang)}
                 <em className="field__saved">{edgeTrim} px</em>
               </span>
               <div className="input-row">
@@ -1867,30 +1884,24 @@ export function ImageEditorModal({
                   }}
                 />
               </div>
-              <span className="field__hint">
-                把紧贴透明区的像素再削掉 N 圈，专门清抗锯齿白边/灰边；削过头就把值调回 0 或 1。
-              </span>
+              <span className="field__hint">{t('ie.classic.edgeTrimHint', lang)}</span>
             </div>
 
             <div className="field">
               <span className="field__label">
-                要去除的颜色 <em className="field__saved">{colors.length} 个</em>
+                {t('ie.classic.colors', lang)}{' '}
+                <em className="field__saved">
+                  {t('ie.classic.colorCount', lang, { count: String(colors.length) })}
+                </em>
               </span>
-              <span className="field__hint">
-                <b>背景色要和角色的主色拉开距离</b> —— 比如角色大面积是紫色头发/紫衣服，
-                就别选紫背景；同理角色以白色为主时别用白背景。
-                颜色太接近时，算法无法区分「这是背景」还是「这是角色的一部分」，
-                会把角色内部一起挖掉。
-                <br />
-                纯色背景（黑 / 白 / 绿 / 蓝）效果最好；渐变或带纹理的背景需要多点几处取色。
-              </span>
+              <span className="field__hint">{t('ie.classic.colorsHint', lang)}</span>
               <div className="bg-swatches">
                 {colors.map((color, index) => (
                   <button
                     key={`${color.r}-${color.g}-${color.b}-${index}`}
                     type="button"
                     className="bg-chip"
-                    title="点击移除这个颜色"
+                    title={t('ie.classic.removeColor', lang)}
                     onClick={() => {
                       pushHistory();
                       setColors((prev) => prev.filter((_, i) => i !== index));
@@ -1899,12 +1910,11 @@ export function ImageEditorModal({
                     <span className="bg-chip__dot" style={{ background: `rgb(${color.r}, ${color.g}, ${color.b})` }} />×
                   </button>
                 ))}
-                {colors.length === 0 ? <span className="field__hint">已清空，点图片即可添加</span> : null}
+                {colors.length === 0 ? (
+                  <span className="field__hint">{t('ie.classic.colorsEmpty', lang)}</span>
+                ) : null}
               </div>
-              <span className="field__hint">
-                这是「按颜色全局删」。若主体上有和它接近的颜色（比如紫发 + 紫背景），别把容差调大，改用下面的
-                「点选删除（魔棒）」。
-              </span>
+              <span className="field__hint">{t('ie.classic.colorsHint2', lang)}</span>
               <div className="actions">
                 <button
                   type="button"
@@ -1915,7 +1925,7 @@ export function ImageEditorModal({
                     if (src) setColors([detectBackground(src)]);
                   }}
                 >
-                  重新取背景色
+                  {t('ie.classic.recapture', lang)}
                 </button>
                 <button
                   type="button"
@@ -1926,18 +1936,19 @@ export function ImageEditorModal({
                   }}
                   disabled={colors.length === 0}
                 >
-                  清空全部
+                  {t('ie.classic.clearAll', lang)}
                 </button>
               </div>
             </div>
 
             <div className="field">
               <span className="field__label">
-                点选删除（魔棒） <em className="field__saved">{marks.length} 处</em>
+                {t('ie.wand.title', lang)}{' '}
+                <em className="field__saved">
+                  {t('ie.wand.count', lang, { count: String(marks.length) })}
+                </em>
               </span>
-              <span className="field__hint">
-                直接点图片上要去掉的区域：只删与那一点连通的同色区块，不会牵连别处同色的部位。适合头发缝、夹缝、单块残留。
-              </span>
+              <span className="field__hint">{t('ie.wand.hint', lang)}</span>
               <div className="actions">
                 <button
                   type="button"
@@ -1945,7 +1956,7 @@ export function ImageEditorModal({
                   onClick={() => setMarks((prev) => prev.slice(0, -1))}
                   disabled={marks.length === 0}
                 >
-                  撤销上一次点选
+                  {t('ie.wand.undo', lang)}
                 </button>
                 <button
                   type="button"
@@ -1953,14 +1964,14 @@ export function ImageEditorModal({
                   onClick={() => setMarks([])}
                   disabled={marks.length === 0}
                 >
-                  清空点选
+                  {t('ie.wand.clear', lang)}
                 </button>
               </div>
             </div>
 
             <div className="field">
               <span className="field__label">
-                亮度
+                {t('ie.classic.brightness', lang)}
                 <em className="field__saved">{brightness}%</em>
               </span>
               <div className="input-row">
@@ -2004,17 +2015,17 @@ export function ImageEditorModal({
                   if (src) setColors([detectBackground(src)]);
                 }}
               >
-                重置参数
+                {t('ie.classic.reset', lang)}
               </button>
             </div>
             </details>
 
             <label className="field">
-              <span className="field__label">备注（可选，会记进素材库）</span>
+              <span className="field__label">{t('ie.note.label', lang)}</span>
               <input
                 className="input"
                 value={note}
-                placeholder="例如：去背景版 / 用于立绘"
+                placeholder={t('ie.note.placeholder', lang)}
                 onChange={(event) => setNote(event.target.value)}
               />
             </label>

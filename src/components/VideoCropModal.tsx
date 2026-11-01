@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { t, useLang } from '../i18n';
 
 /**
  * 抽帧裁剪范围设置窗口。
@@ -38,6 +39,7 @@ export function VideoCropModal({
   onCancel,
   onConfirm,
 }: VideoCropModalProps): React.JSX.Element {
+  const [lang] = useLang();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const dragStart = useRef<{ x0: number; y0: number } | null>(null);
 
@@ -154,12 +156,10 @@ export function VideoCropModal({
       <div className="modal video-crop-modal" onClick={(event) => event.stopPropagation()}>
         <header className="modal__head">
           <div>
-            <h2>设置抽帧裁剪范围</h2>
-            <span className="field__hint">
-              在画面里拖出要保留的区域，或直接在右侧输入像素值。只抽这块，帧文件会小很多。
-            </span>
+            <h2>{t('vc.title', lang)}</h2>
+            <span className="field__hint">{t('vc.subtitle', lang)}</span>
           </div>
-          <button type="button" className="btn btn--ghost" onClick={onCancel} title="关闭（Esc）">
+          <button type="button" className="btn btn--ghost" onClick={onCancel} title={t('vc.closeTitle', lang)}>
             ×
           </button>
         </header>
@@ -201,7 +201,7 @@ export function VideoCropModal({
                 ) : null}
                 {dragStyle ? <div className="crop-rect crop-rect--drawing" style={dragStyle} /> : null}
                 {!crop && !dragging && box.width > 0 ? (
-                  <span className="crop-layer__hint">按住鼠标拖出裁剪范围</span>
+                  <span className="crop-layer__hint">{t('vc.dragHint', lang)}</span>
                 ) : null}
               </div>
             </div>
@@ -210,7 +210,7 @@ export function VideoCropModal({
           <aside className="video-crop__panel">
             <div className="video-crop__row">
               <label className="field">
-                <span className="field__label">宽（px）</span>
+                <span className="field__label">{t('vc.width', lang)}</span>
                 <input
                   className="input input--num"
                   type="number"
@@ -221,7 +221,7 @@ export function VideoCropModal({
                 />
               </label>
               <label className="field">
-                <span className="field__label">高（px）</span>
+                <span className="field__label">{t('vc.height', lang)}</span>
                 <input
                   className="input input--num"
                   type="number"
@@ -235,7 +235,7 @@ export function VideoCropModal({
 
             <div className="video-crop__row">
               <label className="field">
-                <span className="field__label">左上 X</span>
+                <span className="field__label">{t('vc.left', lang)}</span>
                 <input
                   className="input input--num"
                   type="number"
@@ -246,7 +246,7 @@ export function VideoCropModal({
                 />
               </label>
               <label className="field">
-                <span className="field__label">左上 Y</span>
+                <span className="field__label">{t('vc.top', lang)}</span>
                 <input
                   className="input input--num"
                   type="number"
@@ -264,7 +264,7 @@ export function VideoCropModal({
                 className="btn btn--ghost"
                 onClick={() => setCrop({ x: 0, y: 0, w: videoSize.width, h: videoSize.height })}
               >
-                整帧
+                {t('vc.full', lang)}
               </button>
               <button
                 type="button"
@@ -276,24 +276,24 @@ export function VideoCropModal({
                   setCrop(normalize({ x: (videoSize.width - w) / 2, y: (videoSize.height - h) / 2, w, h }));
                 }}
               >
-                居中 75%
+                {t('vc.center', lang)}
               </button>
             </div>
 
             <span className="field__hint">
-              原始尺寸 {videoSize.width}×{videoSize.height}
+              {t('vc.originalSize', lang, {
+                w: String(videoSize.width),
+                h: String(videoSize.height),
+              })}
               {crop ? (
                 <>
                   <br />
-                  当前会抽 <b>
-                    {crop.w}×{crop.h}
-                  </b>{' '}
-                  的区域
+                  {t('vc.willExtract', lang, { w: String(crop.w), h: String(crop.h) })}
                 </>
               ) : (
                 <>
                   <br />
-                  当前：整帧（不裁剪）
+                  {t('vc.currentFull', lang)}
                 </>
               )}
             </span>
@@ -301,13 +301,13 @@ export function VideoCropModal({
         </div>
 
         <footer className="modal__foot">
-          <span className="field__hint">裁剪只影响这次的抽帧结果，不会改原视频。</span>
+          <span className="field__hint">{t('vc.hint', lang)}</span>
           <div className="video-crop__actions">
             <button type="button" className="btn btn--ghost" onClick={onCancel}>
-              取消
+              {t('vc.cancel', lang)}
             </button>
             <button type="button" className="btn btn--primary" onClick={() => onConfirm(crop)}>
-              确定
+              {t('vc.confirm', lang)}
             </button>
           </div>
         </footer>

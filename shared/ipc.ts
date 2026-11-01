@@ -70,6 +70,9 @@ export type IpcResult<T> = IpcOk<T> | IpcErr;
 
 export type ThemeMode = 'dark' | 'light';
 
+/** 界面语言：简体中文 / 繁體中文 / English */
+export type Lang = 'zh-CN' | 'zh-TW' | 'en';
+
 /* ------------------------------------------------------------------ */
 /* 能力槽位设置                                                        */
 /* ------------------------------------------------------------------ */
@@ -492,6 +495,9 @@ export interface SkeletonElfApi {
   ui: {
     getTheme(): Promise<IpcResult<ThemeMode>>;
     setTheme(theme: ThemeMode): Promise<IpcResult<ThemeMode>>;
+    /** 界面语言（简中 / 繁中 / EN），存在 data/config/ui.json */
+    getLang(): Promise<IpcResult<Lang>>;
+    setLang(lang: Lang): Promise<IpcResult<Lang>>;
   };
   settings: {
     /** 返回 chat / image / video 三个槽位的设置 */
@@ -626,6 +632,8 @@ export interface SkeletonElfApi {
     importFiles(): Promise<IpcResult<ImportResult>>;
     /** 修改标签 / 备注 / 参考标记 */
     update(input: UpdateKnowledgeInput): Promise<IpcResult<KnowledgeView>>;
+    /** 重命名素材文件（改磁盘文件名；重名报错，不覆盖） */
+    rename(id: string, name: string): Promise<IpcResult<KnowledgeView>>;
     /** 从素材库删除（同时删掉原文件与缩略图） */
     remove(id: string): Promise<IpcResult<null>>;
   };
@@ -636,6 +644,10 @@ export interface SkeletonElfApi {
     listOutputs(): Promise<IpcResult<FrameOutputView[]>>;
     /** 把抽好的帧写成新项目（一个项目一个文件夹，可自定义名称） */
     save(input: SaveFrameProjectInput): Promise<IpcResult<FrameProjectView>>;
+    /** 重命名帧集合（改磁盘文件夹名 + meta.json；重名报错，不覆盖） */
+    rename(id: string, name: string): Promise<IpcResult<FrameProjectView>>;
+    /** 重命名抠图结果目录（保留 -matte / -key 后缀；重名报错，不覆盖） */
+    renameOutput(name: string, nextName: string): Promise<IpcResult<string>>;
     /** 删除整个项目文件夹 */
     remove(id: string): Promise<IpcResult<null>>;
     /** 删掉集合里的某一帧（找循环帧后手动剔多余帧用） */

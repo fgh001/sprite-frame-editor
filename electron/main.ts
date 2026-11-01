@@ -1,6 +1,8 @@
 import path from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
 import { getDataDirs } from './core/paths';
+import { msg } from './core/msg';
+import { getLang } from './core/ui';
 import { migrateToKindFolders } from './core/knowledge';
 import { migrateFramesToSubfolders } from './core/frames';
 import { cancelAllBatches } from './services/rembg-cli';
@@ -33,7 +35,7 @@ function createMainWindow(): void {
     minHeight: 720,
     show: false,
     backgroundColor: '#16181d',
-    title: '精灵帧动画编辑器',
+    title: msg('app.name'),
     autoHideMenuBar: true,
     /* 开发模式的窗口 / 任务栏图标。
        打包后不需要：exe 自带图标资源，Windows 会直接用。
@@ -92,6 +94,9 @@ if (!hasSingleInstanceLock) {
   void app.whenReady().then(() => {
     // 启动即确保便携数据目录存在（config / knowledge / projects / cache / logs）
     getDataDirs();
+    /* 提前读一次界面语言：主进程返回的 error 文案靠它翻译。
+       不预热的话，第一条错误可能用回默认简中。 */
+    getLang();
     registerAppIpc();
     registerSettingsIpc();
     registerFilesIpc();

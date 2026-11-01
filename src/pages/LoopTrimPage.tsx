@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FrameOutputView, FrameProjectView } from '@shared/ipc';
+import { notifyDataChanged, useDataRefresh } from '../state/refresh';
+import { t, useLang } from '../i18n';
 
 /**
  * 找循环帧（独立页面）。
@@ -27,10 +29,17 @@ interface Candidate {
 }
 
 export function LoopTrimPage(): React.JSX.Element {
+  const [lang] = useLang();
   const [projects, setProjects] = useState<FrameProjectView[]>([]);
   /** 抠图结果（outputs 下的目录），和抽帧集合并列供选择 */
   const [outputs, setOutputs] = useState<FrameOutputView[]>([]);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  /**
+   * 用户是否手动点过「取消选择」。
+   * loadProjects 在没有选中项时会自动选第一个集合（首次进页面很方便），
+   * 但用户主动取消后不该再被自动选回去，所以用这个标记挡住。
+   */
+  const userClearedRef = useRef(false);
   /** 搜索起点偏好：0 = 从头扫全部帧，60 = 只从靠后位置找（「缩小范围再找」用） */
   const [prefer, setPrefer] = useState(0);
   /** 保留几个循环；0 = 全部（只裁掉不完整的尾巴） */
@@ -60,6 +69,8 @@ export function LoopTrimPage(): React.JSX.Element {
     setProjects(list);
     setOutputs(outs);
     setSelectedKey((current) => {
+      // 用户主动取消过就不再自动选，否则「取消选择」会被下一次刷新顶掉
+      if (current === null && userClearedRef.current) return null;
       const exists =
         current !== null &&
         (list.some((item) => item.id === current) || outs.some((item) => item.name === current));
@@ -71,6 +82,11 @@ export function LoopTrimPage(): React.JSX.Element {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  /* 帧动画页 / 批量抠图页改了集合或产出后，这里的候选列表也要刷新 */
+  useDataRefresh(() => {
+    void loadProjects();
+  });
 
   /* 选中项可能是抽帧集合（projects）也可能是抠图结果（outputs），
      统一成同一组字段，后面的播放和裁剪只认 absPath。 */
@@ -90,14 +106,15 @@ export function LoopTrimPage(): React.JSX.Element {
    */
   const handleRemoveFrame = async (url: string): Promise<void> => {
     if (!selectedKey) return;
-    if (total <= 1) {
-      setError('至少留一帧，不能全删空');
+    // 少于 2 帧就不成动画了，直接拦住
+    if (total <= 2) {
+      setError(t('lt.msg.needTwo', lang));
       return;
     }
     // URL 形如 kbmedia://output/<id>/frame_005.png
     const fileName = url.split('/').pop() ?? '';
     if (!/^frame_\d+\.png$/i.test(fileName)) {
-      setError(`拿不到帧文件名：${url}`);
+      setError(t('lt.msg.badName', lang, { url }));
       return;
     }
     const res = await window.skeletonElf.frames.removeFrame(selectedKey, fileName);
@@ -107,7 +124,7 @@ export function LoopTrimPage(): React.JSX.Element {
     }
     // 帧序号全变了，之前的循环点结论作废
     setCandidate(null);
-    setNotice(`已删掉 ${fileName}，现在剩 ${res.data.frameCount} 帧。`);
+    setNotice(t('lt.msg.removed', lang, { name: fileName, frames: String(res.data.frameCount) }));
     void loadProjects();
   };
 
@@ -159,17 +176,17 @@ export function LoopTrimPage(): React.JSX.Element {
       }
       setCandidate(res.data);
       if (res.data.removed === 0) {
-        setNotice(
-          searchPrefer === 0
-            ? '全部帧里没找到能接回首帧的位置。试试点「缩小范围再找」。'
-            : '缩到靠后位置还是没找到。也许这段动作本身不是循环，或者末尾缺一帧。',
-        );
+        setNotice(searchPrefer === 0 ? t('lt.msg.noLoopHead', lang) : t('lt.msg.noLoopNarrow', lang));
       } else {
         setIndex(res.data.loopFrame - 1);
         setPlaying(false);
         setNotice(
-          `找到循环点在帧 ${res.data.loopFrame}（差异 ${res.data.score.toFixed(0)}），` +
-            `将保留 ${res.data.kept} 帧、裁掉 ${res.data.removed} 帧。`,
+          t('lt.msg.found', lang, {
+            frame: String(res.data.loopFrame),
+            score: res.data.score.toFixed(0),
+            kept: String(res.data.kept),
+            removed: String(res.data.removed),
+          }),
         );
       }
     } finally {
@@ -180,12 +197,15 @@ export function LoopTrimPage(): React.JSX.Element {
   const handleApply = async (): Promise<void> => {
     if (!selectedPath || !candidate) return;
     if (candidate.removed === 0) {
-      setNotice('没有需要裁的帧，不用执行。');
+      setNotice(t('lt.msg.nothingToTrim', lang));
       return;
     }
     const ok = window.confirm(
-      `将把「${selectedLabel}」覆盖为前 ${candidate.kept} 帧。\n\n` +
-        `删除 ${candidate.removed} 帧，操作不可恢复。\n确定继续吗？`,
+      t('lt.confirm.apply', lang, {
+        name: selectedLabel,
+        kept: String(candidate.kept),
+        removed: String(candidate.removed),
+      }),
     );
     if (!ok) return;
 
@@ -203,11 +223,16 @@ export function LoopTrimPage(): React.JSX.Element {
         return;
       }
       setNotice(
-        `已覆盖：保留 ${res.data.kept} 帧，删掉 ${res.data.removed} 帧。首尾衔接，循环不会跳。`,
+        t('lt.msg.applied', lang, {
+          kept: String(res.data.kept),
+          removed: String(res.data.removed),
+        }),
       );
       setCandidate(null);
       setIndex(0);
       void loadProjects();
+      // 帧被删掉了：素材库的帧动画栏、帧动画页的帧数都要跟着刷新
+      notifyDataChanged();
     } finally {
       setBusy(false);
     }
@@ -217,21 +242,24 @@ export function LoopTrimPage(): React.JSX.Element {
       <div className="stack">
         <section className="card">
           <div className="card__head">
-            <h2>找循环帧</h2>
+            <h2>{t('lt.title', lang)}</h2>
             <button type="button" className="btn btn--ghost" onClick={() => void loadProjects()}>
-              刷新
+              {t('lt.refresh', lang)}
             </button>
           </div>
-          <p className="muted">
-            自动找出「和第一帧最像」的那一帧作为循环点，把后面的多余帧裁掉。
-            确认后会**直接覆盖**当前集合，删除不可恢复。
-          </p>
+          <p className="muted">{t('lt.intro', lang)}</p>
 
           <div className="field">
-            <span className="field__label">当前集合</span>
+            <span className="field__label">{t('lt.currentSet', lang)}</span>
             <div className="ref-strip">
               <code className="ref-strip__name">
-                {selectedPath ? `${selectedLabel} · ${total} 帧 · ${fps} fps` : '还没有选'}
+                {selectedPath
+                  ? t('lt.setMeta', lang, {
+                      name: selectedLabel,
+                      frames: String(total),
+                      fps: String(fps),
+                    })
+                  : t('lt.notSelected', lang)}
               </code>
               <button
                 type="button"
@@ -239,7 +267,22 @@ export function LoopTrimPage(): React.JSX.Element {
                 onClick={() => setPickerOpen(true)}
                 disabled={busy}
               >
-                更换集合
+                {t('lt.changeSet', lang)}
+              </button>
+              {/* 取消选择：不然选错了只能重启应用，或者把那个集合文件夹删掉 */}
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  userClearedRef.current = true;
+                  setSelectedKey(null);
+                  setCandidate(null);
+                  setPlaying(false);
+                  setIndex(0);
+                }}
+                disabled={busy || !selectedKey}
+              >
+                {t('lt.clearSelection', lang)}
               </button>
             </div>
           </div>
@@ -248,7 +291,7 @@ export function LoopTrimPage(): React.JSX.Element {
             <>
               <div className="frame-player">
                 <div className="frame-player__stage">
-                  <img src={frameUrls[Math.min(index, total - 1)]} alt="预览" />
+                  <img src={frameUrls[Math.min(index, total - 1)]} alt={t('lt.preview', lang)} />
                 </div>
                 <div className="frame-player__bar">
                   <button
@@ -256,7 +299,7 @@ export function LoopTrimPage(): React.JSX.Element {
                     className={`btn ${playing ? 'btn--primary' : 'btn--ghost'}`}
                     onClick={() => setPlaying((prev) => !prev)}
                   >
-                    {playing ? '⏸ 暂停' : '▶ 播放'}
+                    {playing ? t('lt.pause', lang) : t('lt.play', lang)}
                   </button>
                   <input
                     className="range frame-player__scrub"
@@ -270,7 +313,10 @@ export function LoopTrimPage(): React.JSX.Element {
                     }}
                   />
                   <span className="field__saved">
-                    第 {Math.min(index, total - 1) + 1} / {total} 帧
+                    {t('lt.frameOf', lang, {
+                      index: String(Math.min(index, total - 1) + 1),
+                      total: String(total),
+                    })}
                   </span>
                   <select
                     className="input select frame-player__speed"
@@ -286,7 +332,7 @@ export function LoopTrimPage(): React.JSX.Element {
                 </div>
                 {candidate && candidate.removed > 0 ? (
                   <span className="field__hint">
-                    循环点已标出（第 {candidate.loopFrame} 帧），拖动进度条可以对比它和首帧。
+                    {t('lt.loopMarked', lang, { frame: String(candidate.loopFrame) })}
                   </span>
                 ) : null}
               </div>
@@ -311,13 +357,11 @@ export function LoopTrimPage(): React.JSX.Element {
                       <button
                         type="button"
                         className="frame-item__edit"
-                        title="删掉这一帧（直接从磁盘删除，不可恢复）"
+                        title={t('lt.deleteFrameTitle', lang)}
                         disabled={busy}
                         onClick={(event) => {
                           event.stopPropagation();
-                          if (
-                            window.confirm(`确定删掉第 ${frameIndex} 帧？删除不可恢复。`)
-                          ) {
+                          if (window.confirm(t('lt.deleteFrameConfirm', lang, { index: String(frameIndex) }))) {
                             void handleRemoveFrame(url);
                           }
                         }}
@@ -331,13 +375,13 @@ export function LoopTrimPage(): React.JSX.Element {
 
                 <>
                   <span className="field__hint">
-                    在全部 {total} 帧里找「和第一帧接得上」的位置，同时算出有几个完整循环。
+                    {t('lt.findHint', lang, { total: String(total) })}
                   </span>
 
                   {/* 算出循环数之后，可以按倍数缩小：4 个循环 → 1 个 */}
                   {candidate && candidate.cycles > 1 ? (
                     <label className="field">
-                      <span className="field__label">保留几个循环</span>
+                      <span className="field__label">{t('lt.keepCycles', lang)}</span>
                       <select
                         className="input select"
                         value={keepCycles || candidate.cycles}
@@ -350,15 +394,20 @@ export function LoopTrimPage(): React.JSX.Element {
                         {Array.from({ length: candidate.cycles }, (_, i) => candidate.cycles - i).map(
                           (count) => (
                             <option key={count} value={count}>
-                              {count} 个循环（{candidate.cycleLength * count} 帧）
-                              {count === candidate.cycles ? ' · 全部' : ''}
+                              {t('lt.keepCyclesOption', lang, {
+                                count: String(count),
+                                frames: String(candidate.cycleLength * count),
+                              })}
+                              {count === candidate.cycles ? t('lt.keepCyclesAll', lang) : ''}
                             </option>
                           ),
                         )}
                       </select>
                       <span className="field__hint">
-                        一共 {candidate.cycles} 个循环，每个 {candidate.cycleLength} 帧。
-                        选 1 个就是把整段缩成单次循环。
+                        {t('lt.keepCyclesHint', lang, {
+                          cycles: String(candidate.cycles),
+                          len: String(candidate.cycleLength),
+                        })}
                       </span>
                     </label>
                   ) : null}
@@ -370,7 +419,7 @@ export function LoopTrimPage(): React.JSX.Element {
                       onClick={() => void handleDetect(0)}
                       disabled={busy || total < 3}
                     >
-                      {busy ? '计算中…' : '找循环帧'}
+                      {busy ? t('lt.detecting', lang) : t('lt.detect', lang)}
                     </button>
                     <button
                       type="button"
@@ -378,7 +427,7 @@ export function LoopTrimPage(): React.JSX.Element {
                       onClick={() => void handleDetect(60)}
                       disabled={busy || total < 3}
                     >
-                      缩小范围再找
+                      {t('lt.detectNarrow', lang)}
                     </button>
                     <button
                       type="button"
@@ -386,21 +435,24 @@ export function LoopTrimPage(): React.JSX.Element {
                       onClick={() => void handleApply()}
                       disabled={busy || !candidate || candidate.removed === 0}
                     >
-                      确认裁剪并覆盖
+                      {t('lt.apply', lang)}
                     </button>
                   </div>
 
                   {candidate ? (
                     <span className="field__hint">
-                      循环点在第 <b>{candidate.loopFrame}</b> 帧 · 保留{' '}
-                      <b>{candidate.kept}</b> 帧 · 裁掉 <b>{candidate.removed}</b> 帧 ·
-                      差异 {candidate.score.toFixed(1)}
+                      {t('lt.result', lang, {
+                        frame: String(candidate.loopFrame),
+                        kept: String(candidate.kept),
+                        removed: String(candidate.removed),
+                        score: candidate.score.toFixed(1),
+                      })}
                     </span>
                   ) : null}
                 </>
             </>
           ) : (
-            <p className="muted">还没有帧集合。先去「帧动画」页抽帧。</p>
+            <p className="muted">{t('lt.empty', lang)}</p>
           )}
 
           {error ? <div className="banner banner--error">{error}</div> : null}
@@ -412,7 +464,7 @@ export function LoopTrimPage(): React.JSX.Element {
         <div className="modal-backdrop">
           <div className="modal">
             <header className="modal__head">
-              <h2>选择帧集合</h2>
+              <h2>{t('lt.picker.title', lang)}</h2>
               <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(false)}>
                 ×
               </button>
@@ -422,11 +474,13 @@ export function LoopTrimPage(): React.JSX.Element {
               <div className="loop-picker">
                 <div className="loop-picker__col">
                   <div className="card__head">
-                    <h3>抽帧集合</h3>
-                    <span className="tag">{projects.length} 个</span>
+                    <h3>{t('lt.picker.sources', lang)}</h3>
+                    <span className="tag">
+                      {t('lt.picker.count', lang, { count: String(projects.length) })}
+                    </span>
                   </div>
                   {projects.length === 0 ? (
-                    <p className="muted">还没有抽帧集合。</p>
+                    <p className="muted">{t('lt.picker.noSources', lang)}</p>
                   ) : (
                     <div className="frame-projects">
                       {projects.map((item) => (
@@ -437,13 +491,16 @@ export function LoopTrimPage(): React.JSX.Element {
                             item.id === selectedKey ? ' is-active' : ''
                           }`}
                           onClick={() => {
+                            userClearedRef.current = false;
                             setSelectedKey(item.id);
                             setPickerOpen(false);
                           }}
                         >
                           <div className="frame-project__head">
                             <strong>{item.name}</strong>
-                            <span className="tag">{item.frameFileNames.length} 帧</span>
+                            <span className="tag">
+                              {t('lt.frames', lang, { count: String(item.frameFileNames.length) })}
+                            </span>
                           </div>
                           <div className="frame-project__thumbs">
                             {item.frameUrls.slice(0, 6).map((url) => (
@@ -468,11 +525,13 @@ export function LoopTrimPage(): React.JSX.Element {
 
                 <div className="loop-picker__col">
                   <div className="card__head">
-                    <h3>抠图集合</h3>
-                    <span className="tag">{outputs.length} 个</span>
+                    <h3>{t('lt.picker.outputs', lang)}</h3>
+                    <span className="tag">
+                      {t('lt.picker.count', lang, { count: String(outputs.length) })}
+                    </span>
                   </div>
                   {outputs.length === 0 ? (
-                    <p className="muted">还没有抠图结果。去「批量抠图」页跑一次。</p>
+                    <p className="muted">{t('lt.picker.noOutputs', lang)}</p>
                   ) : (
                     <div className="frame-projects">
                       {outputs.map((item) => (
@@ -483,6 +542,7 @@ export function LoopTrimPage(): React.JSX.Element {
                             item.name === selectedKey ? ' is-active' : ''
                           }`}
                           onClick={() => {
+                            userClearedRef.current = false;
                             setSelectedKey(item.name);
                             setPickerOpen(false);
                           }}
@@ -490,7 +550,7 @@ export function LoopTrimPage(): React.JSX.Element {
                           <div className="frame-project__head">
                             <strong>{item.name}</strong>
                             <span className="tag">
-                              {item.kind === 'matte' ? '模型' : '传统'}
+                              {item.kind === 'matte' ? t('lt.kind.model', lang) : t('lt.kind.key', lang)}
                             </span>
                           </div>
                           <div className="frame-project__thumbs">
@@ -506,7 +566,10 @@ export function LoopTrimPage(): React.JSX.Element {
                             ))}
                           </div>
                           <span className="field__hint">
-                            {item.frameCount} 帧 · 来自 {item.sourceName}
+                            {t('lt.outMeta', lang, {
+                              frames: String(item.frameCount),
+                              source: item.sourceName,
+                            })}
                           </span>
                         </button>
                       ))}
@@ -516,10 +579,10 @@ export function LoopTrimPage(): React.JSX.Element {
               </div>
             </div>
             <footer className="modal__foot">
-              <span className="field__hint">点一个集合即选定</span>
+              <span className="field__hint">{t('lt.picker.foot', lang)}</span>
               <div className="actions">
                 <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(false)}>
-                  取消
+                  {t('lt.btn.cancel', lang)}
                 </button>
               </div>
             </footer>

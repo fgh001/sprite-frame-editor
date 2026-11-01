@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { t, useLang } from '../i18n';
 
 /**
  * 帧集合播放窗口。
@@ -21,6 +22,7 @@ export interface FramePlayerModalProps {
 const SPEEDS = [0.25, 0.5, 1, 2, 4, 8];
 
 export function FramePlayerModal({ title, frameUrls, fps, onClose }: FramePlayerModalProps): React.JSX.Element {
+  const [lang] = useLang();
   const [playing, setPlaying] = useState(true);
   const [index, setIndex] = useState(0);
   const [speed, setSpeed] = useState(1);
@@ -39,8 +41,12 @@ export function FramePlayerModal({ title, frameUrls, fps, onClose }: FramePlayer
   const meta = useMemo(() => {
     if (total === 0) return '';
     const effective = fps * speed;
-    return `${total} 帧 · 标称 ${fps} fps · 实际 ${effective >= 10 ? Math.round(effective) : effective.toFixed(1)} fps`;
-  }, [total, fps, speed]);
+    return t('fp.meta', lang, {
+      frames: String(total),
+      fps: String(fps),
+      effective: effective >= 10 ? String(Math.round(effective)) : effective.toFixed(1),
+    });
+  }, [total, fps, speed, lang]);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -54,11 +60,14 @@ export function FramePlayerModal({ title, frameUrls, fps, onClose }: FramePlayer
 
         <div className="modal__body">
           {total === 0 ? (
-            <p className="muted">这个集合里没有可播放的帧。</p>
+            <p className="muted">{t('fp.empty', lang)}</p>
           ) : (
             <>
               <div className="frame-player__stage frame-player__stage--modal">
-                <img src={frameUrls[safeIndex]} alt={`第 ${safeIndex + 1} 帧`} />
+                <img
+                  src={frameUrls[safeIndex]}
+                  alt={t('lt.frameOf', lang, { index: String(safeIndex + 1), total: String(total) })}
+                />
               </div>
 
               <div className="frame-player__bar">
@@ -67,7 +76,7 @@ export function FramePlayerModal({ title, frameUrls, fps, onClose }: FramePlayer
                   className={`btn ${playing ? 'btn--primary' : 'btn--ghost'}`}
                   onClick={() => setPlaying((prev) => !prev)}
                 >
-                  {playing ? '⏸ 暂停' : '▶ 播放'}
+                  {playing ? t('lt.pause', lang) : t('lt.play', lang)}
                 </button>
                 <input
                   className="range frame-player__scrub"
@@ -81,13 +90,13 @@ export function FramePlayerModal({ title, frameUrls, fps, onClose }: FramePlayer
                   }}
                 />
                 <span className="field__saved">
-                  第 {safeIndex + 1} / {total} 帧
+                  {t('lt.frameOf', lang, { index: String(safeIndex + 1), total: String(total) })}
                 </span>
                 <select
                   className="input select frame-player__speed"
                   value={speed}
                   onChange={(event) => setSpeed(Number(event.target.value))}
-                  title="播放速度倍率"
+                  title={t('fp.speedTitle', lang)}
                 >
                   {SPEEDS.map((value) => (
                     <option key={value} value={value}>

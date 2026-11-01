@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { NavKey } from '../components/Sidebar';
+import { useDataRefresh } from '../state/refresh';
+import { t, useLang } from '../i18n';
 
 /**
  * 生成流水线总览。
@@ -40,31 +42,41 @@ const EMPTY: Snapshot = {
 
 interface PipelinePageProps {
   onNavigate: (key: NavKey) => void;
+  /** 跳到设置页的指定分栏（语言 / 模型） */
+  onOpenSettings?: (tab: 'models' | 'language') => void;
 }
 
-export function PipelinePage({ onNavigate }: PipelinePageProps): React.JSX.Element {
+export function PipelinePage({ onNavigate, onOpenSettings }: PipelinePageProps): React.JSX.Element {
+  const [lang] = useLang();
   const [stats, setStats] = useState<Snapshot | null>(null);
 
-  useEffect(() => {
-    void (async () => {
-      const [knowledge, projects, outputs] = await Promise.all([
-        window.skeletonElf.knowledge.list(),
-        window.skeletonElf.frames.list(),
-        window.skeletonElf.frames.listOutputs(),
-      ]);
-      const items = knowledge.ok ? knowledge.data : [];
-      const sets = projects.ok ? projects.data : [];
-      const outs = outputs.ok ? outputs.data : [];
-      setStats({
-        images: items.filter((item) => item.kind === 'image').length,
-        videos: items.filter((item) => item.kind === 'video').length,
-        frameSets: sets.length,
-        frameCount: sets.reduce((sum, item) => sum + item.frameCount, 0),
-        outputSets: outs.length,
-        outputFrames: outs.reduce((sum, item) => sum + item.frameCount, 0),
-      });
-    })();
+  const load = useCallback(async (): Promise<void> => {
+    const [knowledge, projects, outputs] = await Promise.all([
+      window.skeletonElf.knowledge.list(),
+      window.skeletonElf.frames.list(),
+      window.skeletonElf.frames.listOutputs(),
+    ]);
+    const items = knowledge.ok ? knowledge.data : [];
+    const sets = projects.ok ? projects.data : [];
+    const outs = outputs.ok ? outputs.data : [];
+    setStats({
+      images: items.filter((item) => item.kind === 'image').length,
+      videos: items.filter((item) => item.kind === 'video').length,
+      frameSets: sets.length,
+      frameCount: sets.reduce((sum, item) => sum + item.frameCount, 0),
+      outputSets: outs.length,
+      outputFrames: outs.reduce((sum, item) => sum + item.frameCount, 0),
+    });
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  /* 总览上的数字是扫盘统计：任何页面改了数据都要重算一遍 */
+  useDataRefresh(() => {
+    void load();
+  });
 
   const snapshot = stats ?? EMPTY;
 
@@ -73,70 +85,100 @@ export function PipelinePage({ onNavigate }: PipelinePageProps): React.JSX.Eleme
       {
         index: 1,
         nav: 'image-studio',
-        title: '图像生成',
-        detail: '文生图出素材，默认纯色背景 —— 后面抠图能干净很多。',
-        output: '图片（PNG，可选自动入库）',
-        status: snapshot.images > 0 ? `${snapshot.images} 张` : null,
+        title: t('pl.stage1.title', lang),
+        detail: t('pl.stage1.detail', lang),
+        output: t('pl.stage1.output', lang),
+        status:
+          snapshot.images > 0
+            ? t('pl.count.images', lang, { count: String(snapshot.images) })
+            : null,
       },
       {
         index: 2,
         nav: 'video-studio',
-        title: '循环视频',
-        detail: '把一张图变成首尾相接的循环短片，镜头、光效、衣摆动起来。',
-        output: '视频（mp4 / webm，首帧 = 尾帧）',
-        status: snapshot.videos > 0 ? `${snapshot.videos} 个` : null,
+        title: t('pl.stage2.title', lang),
+        detail: t('pl.stage2.detail', lang),
+        output: t('pl.stage2.output', lang),
+        status:
+          snapshot.videos > 0
+            ? t('pl.count.videos', lang, { count: String(snapshot.videos) })
+            : null,
       },
       {
         index: 3,
         nav: 'frame-studio',
-        title: '抽帧 → 帧序列',
-        detail: '视频按帧率拆成 PNG 序列，一个集合一个文件夹，本地处理不花钱。',
-        output: '帧集合（frame_000.png …）',
+        title: t('pl.stage3.title', lang),
+        detail: t('pl.stage3.detail', lang),
+        output: t('pl.stage3.output', lang),
         status:
-          snapshot.frameSets > 0 ? `${snapshot.frameSets} 个集合 · ${snapshot.frameCount} 帧` : null,
+          snapshot.frameSets > 0
+            ? t('pl.count.frames', lang, {
+                sets: String(snapshot.frameSets),
+                frames: String(snapshot.frameCount),
+              })
+            : null,
       },
       {
         index: 4,
         nav: 'matte-studio',
-        title: '批量抠图',
-        detail: '整组帧一键去背景，模型自己识别主体，不用逐个调颜色参数。',
-        output: '抠图结果（独立目录，不动原帧）',
+        title: t('pl.stage4.title', lang),
+        detail: t('pl.stage4.detail', lang),
+        output: t('pl.stage4.output', lang),
         status:
-          snapshot.outputSets > 0 ? `${snapshot.outputSets} 组 · ${snapshot.outputFrames} 帧` : null,
+          snapshot.outputSets > 0
+            ? t('pl.count.outputs', lang, {
+                sets: String(snapshot.outputSets),
+                frames: String(snapshot.outputFrames),
+              })
+            : null,
       },
       {
         index: 5,
         nav: 'loop-trim',
-        title: '找循环帧',
-        detail: '自动找出和首帧最接近的一帧当循环点，裁掉后面多余的部分。',
-        output: '裁剪后的帧序列（可播放预览）',
+        title: t('pl.stage5.title', lang),
+        detail: t('pl.stage5.detail', lang),
+        output: t('pl.stage5.output', lang),
         status: null,
       },
     ],
-    [snapshot],
+    [snapshot, lang],
   );
 
   /* 根据已有数据推荐下一步，省得用户自己判断该点哪儿 */
   const next = useMemo<{ nav: NavKey; label: string }>(() => {
     if (snapshot.images === 0 && snapshot.videos === 0) {
-      return { nav: 'image-studio', label: '先生成第一张素材' };
+      return { nav: 'image-studio', label: t('pl.next.images', lang) };
     }
-    if (snapshot.videos === 0) return { nav: 'video-studio', label: '把它做成循环视频' };
-    if (snapshot.frameSets === 0) return { nav: 'frame-studio', label: '把视频抽成帧序列' };
-    if (snapshot.outputSets === 0) return { nav: 'matte-studio', label: '给这组帧抠图' };
-    return { nav: 'loop-trim', label: '找出循环帧、裁掉多余部分' };
-  }, [snapshot]);
+    if (snapshot.videos === 0) return { nav: 'video-studio', label: t('pl.next.videos', lang) };
+    if (snapshot.frameSets === 0) return { nav: 'frame-studio', label: t('pl.next.frames', lang) };
+    if (snapshot.outputSets === 0) return { nav: 'matte-studio', label: t('pl.next.outputs', lang) };
+    return { nav: 'loop-trim', label: t('pl.next.trim', lang) };
+  }, [snapshot, lang]);
 
   const cells: { label: string; value: string }[] = [
-    { label: '素材图片', value: stats ? String(snapshot.images) : '—' },
-    { label: '视频', value: stats ? String(snapshot.videos) : '—' },
+    { label: t('pl.stat.images', lang), value: stats ? String(snapshot.images) : '—' },
+    { label: t('pl.stat.videos', lang), value: stats ? String(snapshot.videos) : '—' },
     {
-      label: '帧集合',
-      value: stats ? (snapshot.frameSets > 0 ? `${snapshot.frameSets} / ${snapshot.frameCount} 帧` : '0') : '—',
+      label: t('pl.stat.frames', lang),
+      value: stats
+        ? snapshot.frameSets > 0
+          ? t('pl.stat.frameValue', lang, {
+              sets: String(snapshot.frameSets),
+              frames: String(snapshot.frameCount),
+            })
+          : '0'
+        : '—',
     },
     {
-      label: '抠图结果',
-      value: stats ? (snapshot.outputSets > 0 ? `${snapshot.outputSets} / ${snapshot.outputFrames} 帧` : '0') : '—',
+      label: t('pl.stat.outputs', lang),
+      value: stats
+        ? snapshot.outputSets > 0
+          ? t('pl.stat.frameValue', lang, {
+              sets: String(snapshot.outputSets),
+              frames: String(snapshot.outputFrames),
+            })
+          : '0'
+        : '—',
     },
   ];
 
@@ -144,14 +186,27 @@ export function PipelinePage({ onNavigate }: PipelinePageProps): React.JSX.Eleme
     <div className="stack">
       <section className="card pipeline-hero">
         <div className="pipeline-hero__text">
-          <h2>一条流水线，五步各自独立</h2>
-          <p className="muted">
-            每一格都能单独用：只想抠图、只想找循环帧都行。所有文件都在本地 <code>data/</code> 目录里，随时能整个搬走。
-          </p>
+          <h2>{t('pl.hero.title', lang)}</h2>
+          <p className="muted">{t('pl.hero.body', lang)}</p>
         </div>
         <button type="button" className="btn btn--primary" onClick={() => onNavigate(next.nav)}>
-          下一步：{next.label} →
+          {t('pl.next', lang, { label: next.label })}
         </button>
+      </section>
+
+      {/* 快速定位：直接跳到设置页的对应分栏，不用先去侧边栏找「设置」 */}
+      <section className="card">
+        <div className="card__head">
+          <h2>{t('pipeline.quick.jump', lang)}</h2>
+        </div>
+        <div className="actions">
+          <button type="button" className="btn btn--ghost" onClick={() => onOpenSettings?.('language')}>
+            {t('pipeline.quick.language', lang)}
+          </button>
+          <button type="button" className="btn btn--ghost" onClick={() => onOpenSettings?.('models')}>
+            {t('pipeline.quick.models', lang)}
+          </button>
+        </div>
       </section>
 
       <section className="card pipeline-stats">
@@ -175,13 +230,13 @@ export function PipelinePage({ onNavigate }: PipelinePageProps): React.JSX.Eleme
               <span className="stage-card__index">{stage.index}</span>
               <h3>{stage.title}</h3>
               {stage.status === null ? (
-                <span className="tag tag--pending">未开始</span>
+                <span className="tag tag--pending">{t('pl.pending', lang)}</span>
               ) : (
                 <span className="tag tag--ok">{stage.status}</span>
               )}
             </div>
             <p className="muted">{stage.detail}</p>
-            <div className="stage-card__export">产出：{stage.output}</div>
+            <div className="stage-card__export">{t('pl.output', lang, { value: stage.output })}</div>
           </button>
         ))}
       </div>

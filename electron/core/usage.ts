@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { UsageStats, UsageModelStat } from '../../shared/ipc';
 import { getDataDirs } from './paths';
 import { listItems } from './knowledge';
+import { msg } from './msg';
 
 /**
  * 内置单价表（元/张），用于本地估算花费。
@@ -59,6 +60,6 @@ export function computeUsage(): UsageStats {
     totalImages: items.length + cachedFiles,
     byModel,
     estimatedCost,
-    note: '本地统计：素材库登记数 + 缓存目录文件数，按内置单价估算，不等于服务商账单',
+    note: msg('app.usage.note'),
   };
 }

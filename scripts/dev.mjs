@@ -99,12 +99,20 @@ function startElectron() {
       restarting = false;
       return;
     }
-    console.log(`[dev] Electron 退出（code=${code}），关闭 dev server`);
+    // 正常退出（点关闭 / Ctrl+C）不再打印，避免残留日志脏掉终端；异常退出才报出来
+    const normalExit = (code ?? 0) === 0 || code === 3221225786;
+    if (!normalExit) {
+      console.log(`[dev] Electron 退出（code=${code}），关闭 dev server`);
+    }
     void shutdown(code ?? 0);
   });
 }
 
+/** 记下退出码，供 exit 钩子判断正常退出还是异常退出（Ctrl+C 时 Electron 的 code 是 0xC000013A） */
+let exitCodeHint = 0;
+
 async function shutdown(code) {
+  exitCodeHint = code;
   try {
     await server.close();
   } catch {
@@ -167,9 +175,18 @@ process.on('SIGTERM', () => void shutdown(0));
 /* ---------- 退出诊断 ----------
    「编译完成 → 启动 Electron → 直接回提示符」且没有任何 [dev] 输出，
    说明 dev.mjs 自己静默退出了（不是 Electron 退出，Electron 退出会走 close 回调打印）。
-   下面三个钩子能抓出到底是哪条路径退的，以后遇到直接看这几行就够了。 */
+   下面几个钩子能抓出到底是哪条路径退的，以后遇到直接看这几行就够了。
+
+   正常退出（code=0，包括按 Ctrl+C 关掉窗口）时**什么都不打**：
+   不打印、不清屏，只把终端还给用户，保留他之前的输出历史。
+   异常退出仍保留日志，方便排查。 */
 process.on('exit', (code) => {
-  console.error(`[dev] dev.mjs 进程退出，code=${code}`);
+  // Ctrl+C 关窗口时 Electron 的退出码是 0xC000013A(3221225786)，Node 传到这里可能被截断成 0，
+  // 所以用 shutdown() 记下的原始值兜底。
+  const effective = code !== 0 ? code : exitCodeHint;
+  const normalExit = effective === 0 || effective === 3221225786;
+  if (normalExit) return;
+  console.error(`[dev] dev.mjs 进程退出，code=${effective}`);
 });
 process.on('uncaughtException', (err) => {
   console.error('[dev] 未捕获异常：', err);

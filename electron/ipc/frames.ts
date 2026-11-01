@@ -9,6 +9,7 @@ import type {
   SaveFrameProjectInput,
 } from '../../shared/ipc';
 import { getDataDirs } from '../core/paths';
+import { msg } from '../core/msg';
 import {
   frameFilePath,
   listFrameOutputs,
@@ -16,6 +17,8 @@ import {
   projectDirOf,
   removeFrameFile,
   removeFrameProject,
+  renameFrameOutput,
+  renameFrameProject,
   saveFrameProject,
 } from '../core/frames';
 
@@ -24,10 +27,12 @@ function toError(err: unknown): IpcErr {
 }
 
 function validateSave(raw: unknown): SaveFrameProjectInput {
-  if (!raw || typeof raw !== 'object') throw new Error('参数无效');
+  if (!raw || typeof raw !== 'object') throw new Error(msg('err.frames.badArgs'));
   const input = raw as Partial<SaveFrameProjectInput>;
-  if (!Array.isArray(input.frames) || input.frames.length === 0) throw new Error('没有可保存的帧');
-  if (input.frames.length > 600) throw new Error('单次最多保存 600 帧，请减少抽帧数量');
+  if (!Array.isArray(input.frames) || input.frames.length === 0) {
+    throw new Error(msg('err.frames.empty'));
+  }
+  if (input.frames.length > 600) throw new Error(msg('err.frames.tooMany'));
   return {
     name: typeof input.name === 'string' ? input.name : '',
     sourceVideo: typeof input.sourceVideo === 'string' ? input.sourceVideo : '',
@@ -68,7 +73,7 @@ export function registerFramesIpc(): void {
 
   ipcMain.handle('frames:remove', async (_event, id: unknown): Promise<IpcResult<null>> => {
     try {
-      if (typeof id !== 'string' || !id) throw new Error('项目 id 无效');
+      if (typeof id !== 'string' || !id) throw new Error(msg('err.frames.badId'));
       removeFrameProject(id);
       return { ok: true, data: null };
     } catch (err) {
@@ -76,13 +81,41 @@ export function registerFramesIpc(): void {
     }
   });
 
+  /** 重命名帧集合（改磁盘文件夹名 + meta.json；重名直接报错不覆盖） */
+  ipcMain.handle(
+    'frames:rename',
+    async (_event, id: unknown, name: unknown): Promise<IpcResult<FrameProjectView>> => {
+      try {
+        if (typeof id !== 'string' || !id) throw new Error(msg('err.frames.badId'));
+        if (typeof name !== 'string') throw new Error(msg('err.frames.badNewName'));
+        return { ok: true, data: renameFrameProject(id, name) };
+      } catch (err) {
+        return toError(err);
+      }
+    },
+  );
+
+  /** 重命名抠图结果目录（保留 -matte / -key 后缀；重名直接报错不覆盖） */
+  ipcMain.handle(
+    'frames:renameOutput',
+    async (_event, name: unknown, nextName: unknown): Promise<IpcResult<string>> => {
+      try {
+        if (typeof name !== 'string' || !name) throw new Error(msg('err.frames.badOutputName'));
+        if (typeof nextName !== 'string') throw new Error(msg('err.frames.badNewName'));
+        return { ok: true, data: renameFrameOutput(name, nextName) };
+      } catch (err) {
+        return toError(err);
+      }
+    },
+  );
+
   /** 删掉集合里的某一帧（找循环帧后手动剔多余帧用） */
   ipcMain.handle(
     'frames:removeFrame',
     async (_event, id: unknown, fileName: unknown): Promise<IpcResult<{ frameCount: number }>> => {
       try {
-        if (typeof id !== 'string' || !id) throw new Error('项目 id 无效');
-        if (typeof fileName !== 'string' || !fileName) throw new Error('帧文件名无效');
+        if (typeof id !== 'string' || !id) throw new Error(msg('err.frames.badId'));
+        if (typeof fileName !== 'string' || !fileName) throw new Error(msg('err.frames.badFileName'));
         return { ok: true, data: removeFrameFile(id, fileName) };
       } catch (err) {
         return toError(err);

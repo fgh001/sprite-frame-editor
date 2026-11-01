@@ -559,6 +559,28 @@ h3 {
   font-size: 12.5px;
 }
 
+/* 文本框里的文字必须能用鼠标拖选、也能 Ctrl+A 全选。
+   两个坑：
+   ① 有些容器（.editor-stage / .crop-layer）为了拖拽设了 user-select: none，
+      子元素会继承过去；
+   ② <label> 包着 <input> 时，Chromium 的 label 激活会把刚拖出的选区取消，
+      看起来就是「选不中」。能选中的文本一律显式声明，别依赖继承。 */
+input,
+textarea,
+select,
+.input,
+code,
+pre,
+.field,
+.field__label,
+.field__hint,
+.field__saved,
+.balance-extra,
+.muted {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .input:focus {
   outline: none;
   border-color: rgba(59, 130, 246, 0.65);

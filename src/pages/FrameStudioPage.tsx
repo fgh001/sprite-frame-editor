@@ -3,6 +3,8 @@ import type { FrameProjectView, KnowledgeView } from '@shared/ipc';
 import { ImageEditorModal, type EditorKeyParams } from '../components/ImageEditorModal';
 import { FramePlayerModal } from '../components/FramePlayerModal';
 import { VideoCropModal } from '../components/VideoCropModal';
+import { notifyDataChanged, useDataRefresh } from '../state/refresh';
+import { t, useLang, type Lang } from '../i18n';
 
 interface FrameStudioPageProps {
   onOpenModelSettings: () => void;
@@ -76,18 +78,25 @@ const MODEL_SECONDS: Record<string, number> = {
 };
 
 /** 把秒数写成「约 1 小时 5 分钟」这种人话 */
-function humanDuration(seconds: number): string {
-  if (seconds < 60) return `约 ${Math.max(1, Math.round(seconds))} 秒`;
+function humanDuration(seconds: number, lang: Lang): string {
+  if (seconds < 60) return t('mt.dur.sec', lang, { n: String(Math.max(1, Math.round(seconds))) });
   const minutes = seconds / 60;
-  if (minutes < 60) return `约 ${Math.round(minutes)} 分钟`;
+  if (minutes < 60) return t('mt.dur.min', lang, { n: String(Math.round(minutes)) });
   const hours = Math.floor(minutes / 60);
   const rest = Math.round(minutes % 60);
-  return rest > 0 ? `约 ${hours} 小时 ${rest} 分钟` : `约 ${hours} 小时`;
+  return rest > 0
+    ? t('mt.dur.hourMin', lang, { h: String(hours), m: String(rest) })
+    : t('mt.dur.hour', lang, { h: String(hours) });
 }
 
 export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): React.JSX.Element {
+  const [lang] = useLang();
   const [videos, setVideos] = useState<KnowledgeView[]>([]);
   const [projects, setProjects] = useState<FrameProjectView[]>([]);
+  /** 正在改名的集合 id（null = 没有在改名） */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  /** 改名输入框的当前内容 */
+  const [renameValue, setRenameValue] = useState('');
   const [selected, setSelected] = useState<KnowledgeView | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [duration, setDuration] = useState(0);
@@ -95,6 +104,14 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
   const [startSec, setStartSec] = useState(0);
   const [endSec, setEndSec] = useState(0);
   const [fps, setFps] = useState(12);
+  /**
+   * 要抽几帧（力度）。
+   *
+   * 为什么不用「帧率」直接算：帧率乘时长决定帧数，1 fps × 8 秒 = 9 帧，
+   * 想只拿首尾两张根本做不到（最小也是 9 帧）。改成直接指定帧数，
+   * 2 帧 = 只有首尾两张，要多少给多少，跟视频长短无关。
+   */
+  const [targetFrames, setTargetFrames] = useState(12);
   const [maxFrames, setMaxFrames] = useState(60);
   /** 抽帧前是否自动找循环点（默认关：不是所有动画都需要循环，决定权交给用户） */
   const [autoFindLoop, setAutoFindLoop] = useState(false);
@@ -107,6 +124,8 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
 
   const [frames, setFrames] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /** 是否正在「在帧序列里找循环点」——按钮文案要靠它，不能用进度文案做字符串匹配（换语言就失效） */
+  const [scanningLoop, setScanningLoop] = useState(false);
   const [progressText, setProgressText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -277,6 +296,13 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
     void loadProjects();
   }, [loadLibrary, loadProjects]);
 
+  /* 别处（素材库改名、批量抠图出结果等）改了数据时，这一页也要跟着刷新，
+     否则切回来看到的还是旧列表。 */
+  useDataRefresh(() => {
+    void loadLibrary();
+    void loadProjects();
+  });
+
   /**
    * 窗口重新获得焦点时刷新帧项目列表。
    * 用户经常"打开目录 → 手动删几张图/整个文件夹 → 切回来"，
@@ -328,13 +354,14 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
   const handleFindLoop = async (): Promise<void> => {
     const video = videoRef.current;
     if (!video) {
-      setError('视频还没加载好');
+      setError(t('fs.err.videoNotReady', lang));
       return;
     }
     setBusy(true);
+    setScanningLoop(true);
     setError(null);
     setNotice(null);
-    setProgressText('正在寻找循环点…');
+    setProgressText(t('fs.findingLoopProgress', lang));
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -359,7 +386,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       });
 
     try {
-      if (!ctx) throw new Error('无法创建画布');
+      if (!ctx) throw new Error(t('fs.err.noCanvas', lang));
       const SAMPLE = 24;
       const fingerprint = (): Float32Array => {
         canvas.width = SAMPLE;
@@ -381,7 +408,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       const minGap = Math.max(0.4, (endSec - startSec) * 0.3);
       const scanFrom = Math.min(total, startSec + minGap);
       const scanTo = total;
-      if (scanTo - scanFrom < 0.2) throw new Error('视频太短，没有可扫描的区间');
+      if (scanTo - scanFrom < 0.2) throw new Error(t('fs.err.tooShort', lang));
 
       const steps = Math.min(100, Math.max(16, Math.round((scanTo - scanFrom) / 0.05)));
       let bestTime = scanTo;
@@ -389,7 +416,13 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
 
       for (let i = 0; i <= steps; i += 1) {
         const time = scanFrom + ((scanTo - scanFrom) * i) / steps;
-        setProgressText(`扫描中 ${i + 1}/${steps + 1} · 当前最佳 ${bestTime.toFixed(2)}s`);
+        setProgressText(
+          t('fs.progress.scanning', lang, {
+            current: String(i + 1),
+            total: String(steps + 1),
+            best: bestTime.toFixed(2),
+          }),
+        );
         await seek(time);
         const current = fingerprint();
         let sum = 0;
@@ -406,13 +439,13 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
 
       setEndSec(Number(bestTime.toFixed(2)));
       setNotice(
-        `循环点找到：${bestTime.toFixed(2)}s（与起始帧差异 ${bestScore.toFixed(0)}）。` +
-          '结束时间已设为这里，首尾帧几乎一致，循环不会跳。',
+        t('fs.msg.loopFound', lang, { time: bestTime.toFixed(2), score: bestScore.toFixed(0) }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+      setScanningLoop(false);
       setProgressText('');
       void seek(startSec);
     }
@@ -428,7 +461,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
     setError(null);
     setNotice(null);
     setBusy(true);
-    setProgressText('正在比对帧…');
+    setProgressText(t('fs.progress.comparing', lang));
     try {
       const preview = await window.skeletonElf.files.trimLoop(absPath, true);
       if (!preview.ok) {
@@ -438,24 +471,38 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       const { kept, removed, loopFrame, score } = preview.data;
       if (removed === 0) {
         setNotice(
-          `${name}：共 ${kept} 帧，正好是完整循环（每 ${loopFrame - 1} 帧一轮），没有多余帧需要裁。差异 ${score.toFixed(0)}`,
+          t('fs.msg.loopNone', lang, {
+            name,
+            frames: String(kept),
+            per: String(loopFrame - 1),
+            score: score.toFixed(0),
+          }),
         );
         return;
       }
       const ok = window.confirm(
-        `「${name}」找到循环点在帧 ${loopFrame}（与首帧差异 ${score.toFixed(0)}）。\n\n` +
-          `将保留前 ${kept} 帧，删除后面 ${removed} 帧。\n删除后无法恢复，确定继续吗？`,
+        t('fs.confirm.trim', lang, {
+          name,
+          frame: String(loopFrame),
+          score: score.toFixed(0),
+          kept: String(kept),
+          removed: String(removed),
+        }),
       );
       if (!ok) return;
 
-      setProgressText('正在裁剪…');
+      setProgressText(t('fs.progress.trimming', lang));
       const done = await window.skeletonElf.files.trimLoop(absPath, false);
       if (!done.ok) {
         setError(done.error);
         return;
       }
       setNotice(
-        `${name}：已保留 ${done.data.kept} 帧，删掉 ${done.data.removed} 帧。首尾衔接，循环不会跳。`,
+        t('fs.msg.trimDone', lang, {
+          name,
+          kept: String(done.data.kept),
+          removed: String(done.data.removed),
+        }),
       );
       void loadProjects();
     } finally {
@@ -472,18 +519,18 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
    */
   const handleTrimLoop = async (): Promise<void> => {
     if (frames.length < 3) {
-      setError('帧太少，至少 3 帧才能找循环点');
+      setError(t('fs.err.tooFewFrames', lang));
       return;
     }
     setBusy(true);
     setError(null);
     setNotice(null);
-    setProgressText('正在比对帧序列…');
+    setProgressText(t('fs.progress.comparingSeq', lang));
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     try {
-      if (!ctx) throw new Error('无法创建画布');
+      if (!ctx) throw new Error(t('fs.err.noCanvas', lang));
       const SAMPLE = 24;
       const fingerprint = async (url: string): Promise<Float32Array | null> => {
         const image = await new Promise<HTMLImageElement | null>((resolve) => {
@@ -505,13 +552,15 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       };
 
       const first = await fingerprint(frames[0]);
-      if (!first) throw new Error('第 1 帧解码失败');
+      if (!first) throw new Error(t('fs.err.firstFrame', lang));
 
       let bestIndex = frames.length - 1;
       let bestScore = Infinity;
       // 从第 3 帧开始比（前两帧和首帧太近，比了没意义）
       for (let i = 2; i < frames.length; i += 1) {
-        setProgressText(`比对中 ${i + 1}/${frames.length}`);
+        setProgressText(
+          t('fs.progress.comparingN', lang, { current: String(i + 1), total: String(frames.length) }),
+        );
         const current = await fingerprint(frames[i]);
         if (!current) continue;
         let sum = 0;
@@ -528,14 +577,22 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
 
       const removed = frames.length - (bestIndex + 1);
       if (removed <= 0) {
-        setNotice(`第 ${bestIndex + 1} 帧就是最后一帧，没有多余帧需要裁。差异 ${bestScore.toFixed(0)}`);
+        setNotice(
+          t('fs.msg.loopNoneFrame', lang, {
+            frame: String(bestIndex + 1),
+            score: bestScore.toFixed(0),
+          }),
+        );
         return;
       }
       setFrames(frames.slice(0, bestIndex + 1));
       setPlayIndex(0);
       setNotice(
-        `循环点在帧 ${bestIndex + 1}（与首帧差异 ${bestScore.toFixed(0)}），` +
-          `已裁掉后面 ${removed} 帧。现在这 ${bestIndex + 1} 帧首尾衔接，循环不会跳。`,
+        t('fs.msg.loopTrimmed', lang, {
+          frame: String(bestIndex + 1),
+          score: bestScore.toFixed(0),
+          removed: String(removed),
+        }),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -550,17 +607,17 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) {
-      setError('视频还没加载好');
+      setError(t('fs.err.videoNotReady', lang));
       return;
     }
     if (video.videoWidth === 0) {
-      setError('视频尺寸未就绪，稍等再试');
+      setError(t('fs.err.videoSizeNotReady', lang));
       return;
     }
     // 时长没读到就抽帧只会得到 1 帧，这里直接拦掉
     const totalDuration = Number.isFinite(video.duration) ? video.duration : 0;
     if (totalDuration <= 0) {
-      setError('视频时长还没读取到，等视频预览能播放后再点抽帧');
+      setError(t('fs.err.durationNotReady', lang));
       return;
     }
     const begin = Math.max(0, Math.min(startSec, totalDuration));
@@ -574,12 +631,13 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
     );
     /* 双边推进抽帧：
          前半段 —— 从起点按 1/fps 向后数
-         后半段 —— 从终点按 1/fps 向前数
+         后半段 —— 从终点向内倒推
        首帧精确落在 begin、末帧精确落在 finish（最少 2 帧就是首尾各一张）。
-       中间相遇处会有一个稍大的间隔，因为时长通常不是 1/fps 的整数倍 ——
-       这是刻意的：宁可中间多停一格，也不让首尾被截掉。 */
-    const planned = Math.floor((finish - begin) * fps) + 1;
-    const total = Math.min(maxFrames, Math.max(2, planned));
+       中间帧按「区间长度 ÷ (总帧数-1)」均分 —— 现在是直接指定帧数，
+       不再由 fps 反推，所以想要几帧就是几帧。 */
+    const total = Math.min(maxFrames, Math.max(2, targetFrames));
+    // 相邻两帧的时间间隔：首尾锚定后把区间等分
+    const stepSec = total > 1 ? (finish - begin) / (total - 1) : 0;
 
     setBusy(true);
     setError(null);
@@ -594,7 +652,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
     if (!ctx) {
       setBusy(false);
-      setError('无法创建画布上下文');
+      setError(t('fs.err.noCanvas', lang));
       return;
     }
 
@@ -604,12 +662,27 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
 
     const logs: string[] = [];
     logs.push(
-      `视频 ${canvas.width}×${canvas.height} · ${totalDuration.toFixed(2)}s · readyState ${video.readyState}`,
+      t('fs.log.video', lang, {
+        width: String(canvas.width),
+        height: String(canvas.height),
+        duration: totalDuration.toFixed(2),
+        ready: String(video.readyState),
+      }),
     );
-    logs.push(`区间 ${begin.toFixed(2)}s → ${finish.toFixed(2)}s · ${fps}fps · 计划 ${total} 帧`);
+    logs.push(
+      t('fs.log.range', lang, {
+        begin: begin.toFixed(2),
+        finish: finish.toFixed(2),
+        frames: String(total),
+        fps: String(fps),
+      }),
+    );
     // 首尾锚定：这两行能直接看出有没有丢帧
     logs.push(
-      `首帧 t=0.000s · 尾帧 t=${(Math.max(begin, finish - 0.001) - begin).toFixed(3)}s（区间长度 ${(finish - begin).toFixed(3)}s）`,
+      t('fs.log.anchors', lang, {
+        last: (Math.max(begin, finish - 0.001) - begin).toFixed(3),
+        length: (finish - begin).toFixed(3),
+      }),
     );
     setDiag([...logs]);
 
@@ -701,18 +774,21 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       /* 双边推进，但**首尾两帧是硬锚定的**，不参与任何 clamp：
            index = 0        → 精确 begin（视频/区间的第一个画面）
            index = total-1  → 贴着 finish（末帧，只退 1ms 避免 seek 卡在 duration 不出画面）
-         中间帧才按 1/fps 从两端向内分布 —— 帧率只影响「取多少张」，不影响首尾。 */
+         中间帧按 stepSec 均分，前半段从起点往后数、后半段从终点往前数，
+         两边各自累积误差，避免整段统一取整导致末帧对不上。 */
       let time: number;
       if (index === 0) {
         time = begin;
       } else if (index === total - 1) {
         time = Math.max(begin, finish - 0.001);
       } else if (index < total / 2) {
-        time = Math.max(begin, begin + index / fps);
+        time = Math.max(begin, begin + index * stepSec);
       } else {
-        time = Math.min(finish - 0.001, finish - (total - 1 - index) / fps);
+        time = Math.min(finish - 0.001, finish - (total - 1 - index) * stepSec);
       }
-      setProgressText(`抽帧 ${index + 1} / ${total}`);
+      setProgressText(
+        t('fs.progress.extract', lang, { current: String(index + 1), total: String(total) }),
+      );
       const frameStart = performance.now();
       const fellBack = await seekTo(time);
       if (fellBack) fallbackCount += 1;
@@ -785,7 +861,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
           dropped += 1;
         }
       }
-      if (dropped > 0) logs.push(`去重：丢掉 ${dropped} 张重复帧`);
+      if (dropped > 0) logs.push(t('fs.log.dedup', lang, { count: String(dropped) }));
     }
 
     let loopCut = keptFrames.length;
@@ -827,7 +903,12 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
     }
 
     logs.push(
-      `完成 ${captured.length} 张 / ${((performance.now() - startedAt) / 1000).toFixed(1)}s · 兜底 ${fallbackCount} 次 · 最慢 ${slowestMs}ms`,
+      t('fs.log.done', lang, {
+        count: String(captured.length),
+        seconds: ((performance.now() - startedAt) / 1000).toFixed(1),
+        fallback: String(fallbackCount),
+        slowest: String(slowestMs),
+      }),
     );
     setDiag([...logs]);
 
@@ -842,9 +923,11 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
     setProgressText('');
     setBusy(false);
     setNotice(
-      `已抽出 ${finalFrames.length} 帧${removeBg ? '（已去背景）' : ''}` +
-        `${captureMode === 'loop' ? '，已裁到循环点' : ''}，可直接播放预览。` +
-        '满意后点「保存为集合」再落盘。',
+      t('fs.msg.extracted', lang, {
+        frames: String(finalFrames.length),
+        bgRemoved: removeBg ? t('fs.msg.bgRemovedPart', lang) : '',
+        loopCut: captureMode === 'loop' ? t('fs.msg.loopCutPart', lang) : '',
+      }),
     );
     if (!projectName) {
       setProjectName((selected?.fileName ?? 'frames').replace(/\.[^.]+$/, ''));
@@ -876,13 +959,17 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
         frames: frameList,
       });
       if (!res.ok) {
-        setError(`预览落盘失败：${res.error}`);
+        setError(t('fs.err.previewSaveFailed', lang, { error: res.error }));
         return;
       }
       setLastSavedId(res.data.id);
       void loadProjects();
     } catch (err) {
-      setError(`预览落盘失败：${err instanceof Error ? err.message : String(err)}`);
+      setError(
+        t('fs.err.previewSaveFailed', lang, {
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      );
     }
   };
 
@@ -978,7 +1065,13 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       setBackgroundRemoved(true);
       setBusy(false);
       setNotice(
-        `已把编辑器的设置套用到全部 ${next.length} 帧（颜色 ${params.colors.length} 个 · 容差 ${params.tolerance} · 边缘 ${params.edgeTrim}px · 去溢色 ${params.despill}）；仍可单帧再修`,
+        t('fs.msg.appliedAll', lang, {
+          frames: String(next.length),
+          colors: String(params.colors.length),
+          tolerance: String(params.tolerance),
+          edge: String(params.edgeTrim),
+          despill: String(params.despill),
+        }),
       );
     })();
   };
@@ -1003,7 +1096,13 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
           setFrames(next);
           setBackgroundRemoved(true);
           setBusy(false);
-          setNotice(`已对 ${next.length} 帧应用去背景（背景色 ${hexOf(bgColor)}，容差 ${tolerance}）`);
+          setNotice(
+            t('fs.msg.keyApplied', lang, {
+              count: String(next.length),
+              color: hexOf(bgColor),
+              tolerance: String(tolerance),
+            }),
+          );
           return;
         }
         image.onload = () => {
@@ -1028,7 +1127,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
 
   const handleSave = async (): Promise<void> => {
     if (frames.length === 0) {
-      setError('还没有帧可保存，先抽帧');
+      setError(t('fs.err.noFrames', lang));
       return;
     }
     /* 重名不覆盖：自动加 -2、-3 后缀，和抽帧后的自动保存行为保持一致。
@@ -1057,13 +1156,13 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
         const dataUrl = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(String(reader.result));
-          reader.onerror = () => reject(new Error('帧转换失败'));
+          reader.onerror = () => reject(new Error(t('fs.err.convertFailed', lang)));
           reader.readAsDataURL(blob);
         });
         dataUrls.push(dataUrl);
       } catch {
         setSaving(false);
-        setError(`第 ${index + 1} 帧转换失败，请重新抽帧`);
+        setError(t('fs.err.frameConvertFailed', lang, { index: String(index + 1) }));
         return;
       }
     }
@@ -1082,10 +1181,17 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       setError(res.error);
       return;
     }
-    setNotice(`已保存到 ${res.data.absPath}（${res.data.frameCount} 帧）`);
+    setNotice(
+      t('fs.save.saved', lang, {
+        count: String(res.data.frameCount),
+        path: res.data.absPath,
+      }),
+    );
     setSavedPath(res.data.absPath);
     setProjectName('');
+    // 新增了帧集合：本页列表 + 批量抠图页的集合列表都要刷新
     void loadProjects();
+    notifyDataChanged();
   };
 
   /**
@@ -1094,8 +1200,9 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
    * 正式集合要等用户再点「保存为集合」才会带上这个改动。
    */
   const handleRemoveFrame = (index: number): void => {
-    if (frames.length <= 1) {
-      setError('至少留一帧，不能全删空');
+    // 一帧不构成动画：低于 2 帧就没法播、没法找循环，直接拦住
+    if (frames.length <= 2) {
+      setError(t('fs.msg.needTwo', lang));
       return;
     }
     const next = frames.filter((_, i) => i !== index);
@@ -1108,67 +1215,127 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
   };
 
   const handleRemoveProject = async (id: string): Promise<void> => {
-    if (!window.confirm(`确定删除帧动画项目「${id}」？\n\n会连同该文件夹里的所有帧一起删除，无法恢复。`)) return;
+    if (!window.confirm(t('fs.confirm.removeProject', lang, { name: id }))) return;
     const res = await window.skeletonElf.frames.remove(id);
     if (!res.ok) {
       setError(res.error);
       return;
     }
     void loadProjects();
+    notifyDataChanged();
+  };
+
+  /**
+   * 重命名帧集合（改的是磁盘文件夹名）。
+   * 重名时后端直接报错、不覆盖，这里把错误原样弹出来。
+   */
+  const handleRenameProject = async (id: string): Promise<void> => {
+    const next = renameValue.trim();
+    if (!next || next === id) {
+      setRenamingId(null);
+      setRenameValue('');
+      return;
+    }
+    const res = await window.skeletonElf.frames.rename(id, next);
+    if (!res.ok) {
+      setError(t('fs.rename.failed', lang, { error: res.error }));
+      return;
+    }
+    setRenamingId(null);
+    setRenameValue('');
+    void loadProjects();
+    // 集合名变了：批量抠图页 / 循环裁剪页里引用的旧名字也要跟着刷
+    notifyDataChanged();
+  };
+
+  /**
+   * 取消选中的视频。
+   *
+   * 不只是把 selected 置空 —— 之前抽出来的帧、预览播放、诊断信息、「已保存」提示
+   * 都是围绕那个视频产生的，留着就成了「视频没选了但画面还在」，所以一起清掉。
+   * 顺带删掉磁盘上的临时预览集合 _preview（它本来就不该长期存在）。
+   */
+  const handleClearSelection = (): void => {
+    setSelected(null);
+    setFrames([]);
+    setPlaying(false);
+    setPlayIndex(0);
+    setSavedPath(null);
+    setBackgroundRemoved(false);
+    setDiag([]);
+    setNotice(null);
+    setError(null);
+    setProgressText('');
+    setDuration(0);
+    setVideoSize({ width: 0, height: 0 });
+    setStartSec(0);
+    setEndSec(0);
+    setProjectName('');
+    // 临时预览目录删掉；失败无所谓，下次抽帧会重建
+    void window.skeletonElf.frames.remove('_preview').then(() => loadProjects());
   };
   const extractedSummary = useMemo(() => {
     if (frames.length === 0) return '';
-    return `${frames.length} 帧 · ${videoSize.width}×${videoSize.height} · ${fps} fps`;
-  }, [frames.length, videoSize, fps]);
+    return t('fs.summary.extracted', lang, {
+      frames: String(frames.length),
+      width: String(videoSize.width),
+      height: String(videoSize.height),
+      fps: String(fps),
+    });
+  }, [frames.length, videoSize, fps, lang]);
 
   return (
     <div className="settings-layout">
       <div className="stack">
         <section className="card">
           <div className="card__head">
-            <h2>视频 → 帧动画</h2>
-            <span className="tag">{videos.length} 个视频</span>
+            <h2>{t('fs.title', lang)}</h2>
+            <span className="tag">{t('fs.videoCount', lang, { count: String(videos.length) })}</span>
           </div>
 
           <div className="field">
-            <span className="field__label">选择视频（来自素材库）</span>
+            <span className="field__label">{t('fs.pickVideo', lang)}</span>
             {selected ? (
               <div className="ref-strip">
                 <code className="ref-strip__name" title={selected.absPath}>
                   {selected.fileName}
                 </code>
                 <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(true)}>
-                  更换视频
+                  {t('fs.changeVideo', lang)}
+                </button>
+                {/* 取消选择：视频、已经抽出来的帧、预览播放状态一起清掉，
+                    否则会出现「视频没选了，画面和预览还留在下面」 */}
+                <button type="button" className="btn btn--ghost" onClick={handleClearSelection}>
+                  {t('fs.clearSelection', lang)}
                 </button>
               </div>
             ) : (
               <div className="actions">
                 <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(true)}>
-                  选择视频
+                  {t('fs.pickVideoBtn', lang)}
                 </button>
                 {videos.length === 0 ? (
-                  <span className="field__hint">
-                    素材库里还没有视频。到「素材库」导入一段 mp4/webm，或用「循环视频」页生成一条。
-                  </span>
+                  <span className="field__hint">{t('fs.noVideos', lang)}</span>
                 ) : null}
               </div>
             )}
             {selected ? (
               <span className="field__hint">
                 {duration > 0
-                  ? `时长 ${duration.toFixed(2)}s · ${videoSize.width}×${videoSize.height}`
+                  ? t('fs.videoMeta', lang, {
+                      duration: duration.toFixed(2),
+                      width: String(videoSize.width),
+                      height: String(videoSize.height),
+                    })
                   : videoLoading
-                    ? '正在读取视频文件…'
+                    ? t('fs.videoLoading', lang)
                     : metaTimeout
-                      ? '元数据读取超时：视频编码可能不受支持（如 HEVC/H.265），或主进程未重启导致协议读不到'
-                      : '正在读取视频信息…'}
+                      ? t('fs.videoTimeout', lang)
+                      : t('fs.videoInfoLoading', lang)}
               </span>
             ) : null}
             {videoFallback ? (
-              <div className="banner banner--error">
-                读取视频走了回退直连（fetch 被拒）。请 <b>完整重启</b>开发进程：终端按 Ctrl+C 停掉，再
-                <code>npm run dev</code>；主进程改动不会热更新。否则抽帧会失败。
-              </div>
+              <div className="banner banner--error">{t('fs.videoFallback', lang)}</div>
             ) : null}
           </div>
 
@@ -1192,13 +1359,19 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                   onVolumeChange={(event) => setVideoMuted(event.currentTarget.muted)}
                   onError={() => {
                     const code = videoRef.current?.error?.code ?? 0;
-                    const reason: Record<number, string> = {
-                      1: '加载被中断',
-                      2: '网络错误',
-                      3: '解码失败（编码不受支持）',
-                      4: '格式不支持或文件不可读',
-                    };
-                    setError(`视频加载失败（code ${code}：${reason[code] ?? '未知'}）。mp4 请优先用 H.264 编码。`);
+                    const reason = t(
+                      code === 1
+                        ? 'fs.video.err1'
+                        : code === 2
+                          ? 'fs.video.err2'
+                          : code === 3
+                            ? 'fs.video.err3'
+                            : code === 4
+                              ? 'fs.video.err4'
+                              : 'fs.video.errUnknown',
+                      lang,
+                    );
+                    setError(t('fs.video.loadFailed', lang, { code: String(code), reason }));
                     setMetaTimeout(true);
                   }}
                 />
@@ -1229,9 +1402,9 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                   type="button"
                   className="video-bar__btn video-bar__btn--play"
                   onClick={togglePlay}
-                  title={videoPlaying ? '暂停' : '播放'}
+                  title={videoPlaying ? t('fs.video.pause', lang) : t('fs.video.play', lang)}
                 >
-                  {videoPlaying ? '⏸ 暂停' : '▶ 播放'}
+                  {videoPlaying ? t('fs.video.pauseIcon', lang) : t('fs.video.playIcon', lang)}
                 </button>
                 <span className="video-bar__time">{videoTime.toFixed(2)}s</span>
                 <input
@@ -1242,18 +1415,23 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                   step={0.01}
                   value={Math.min(videoTime, duration || 0)}
                   onChange={(event) => seekTo(Number(event.target.value))}
-                  title="拖动定位（松手后可点「从此处设为起点 / 终点」）"
+                  title={t('fs.video.seekTitle', lang)}
                 />
                 <span className="video-bar__time">{duration.toFixed(2)}s</span>
                 <button
                   type="button"
                   className="video-bar__btn"
                   onClick={toggleMute}
-                  title={videoMuted ? '取消静音' : '静音'}
+                  title={videoMuted ? t('fs.video.unmute', lang) : t('fs.video.mute', lang)}
                 >
                   {videoMuted ? '🔇' : '🔊'}
                 </button>
-                <button type="button" className="video-bar__btn" onClick={toggleFullscreen} title="全屏">
+                <button
+                  type="button"
+                  className="video-bar__btn"
+                  onClick={toggleFullscreen}
+                  title={t('fs.video.fullscreen', lang)}
+                >
                   ⛶
                 </button>
               </div>
@@ -1265,32 +1443,32 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                 {crop ? (
                   <>
                     {' '}
-                    当前范围 <code>{crop.w}×{crop.h}</code> @ ({crop.x}, {crop.y}){' '}
+                    {t('fs.cropActive', lang, { w: String(crop.w), h: String(crop.h) })}{' '}
                     <button type="button" className="link-btn" onClick={() => setCrop(null)}>
-                      改回整帧
+                      {t('fs.cropReset', lang)}
                     </button>
                   </>
                 ) : (
-                  ' 当前：整帧'
+                  t('fs.cropNone', lang)
                 )}
               </span>
               <div className="actions">
                 <button type="button" className="btn btn--ghost" onClick={() => setCropModalOpen(true)}>
-                  {crop ? '调整裁剪范围…' : '裁剪范围…'}
+                  {t('fs.cropOpen', lang)}
                 </button>
                 <button
                   type="button"
                   className="btn btn--ghost"
                   onClick={() => setStartSec(Number((videoRef.current?.currentTime ?? 0).toFixed(2)))}
                 >
-                  从此处设为起点
+                  {t('fs.setStart', lang)}
                 </button>
                 <button
                   type="button"
                   className="btn btn--ghost"
                   onClick={() => setEndSec(Number((videoRef.current?.currentTime ?? 0).toFixed(2)))}
                 >
-                  从此处设为终点
+                  {t('fs.setEnd', lang)}
                 </button>
               </div>
 
@@ -1313,7 +1491,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
           <div className="studio-params">
             <label className="field">
               <span className="field__label">
-                起始时间 <em className="field__saved">{startSec.toFixed(2)}s</em>
+                {t('fs.startTime', lang)} <em className="field__saved">{startSec.toFixed(2)}s</em>
               </span>
               <input
                 className="input"
@@ -1327,7 +1505,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
             </label>
             <label className="field">
               <span className="field__label">
-                结束时间 <em className="field__saved">{endSec.toFixed(2)}s</em>
+                {t('fs.endTime', lang)} <em className="field__saved">{endSec.toFixed(2)}s</em>
               </span>
               <input
                 className="input"
@@ -1341,7 +1519,25 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
             </label>
             <label className="field">
               <span className="field__label">
-                帧率 <em className="field__saved">{fps} fps</em>
+                {t('fs.targetFrames', lang)}{' '}
+                <em className="field__saved">
+                  {t('fs.list.frames', lang, { count: String(Math.min(maxFrames, Math.max(2, targetFrames))) })}
+                </em>
+              </span>
+              <input
+                className="range"
+                type="range"
+                min={2}
+                max={Math.max(2, Math.min(300, maxFrames))}
+                step={1}
+                value={Math.min(maxFrames, Math.max(2, targetFrames))}
+                onChange={(event) => setTargetFrames(Number(event.target.value))}
+              />
+              <span className="field__hint">{t('fs.targetHint', lang)}</span>
+            </label>
+            <label className="field">
+              <span className="field__label">
+                {t('fs.fps', lang)} <em className="field__saved">{fps} fps</em>
               </span>
               <input
                 className="range"
@@ -1352,13 +1548,11 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                 value={fps}
                 onChange={(event) => setFps(Number(event.target.value))}
               />
-              <span className="field__hint">
-                想只要几张就调到 1–3；做流畅动画一般 8–15。
-              </span>
+              <span className="field__hint">{t('fs.fpsHint', lang)}</span>
             </label>
             <label className="field">
               <span className="field__label">
-                最多帧数 <em className="field__saved">{maxFrames}</em>
+                {t('fs.maxFrames', lang)} <em className="field__saved">{maxFrames}</em>
               </span>
               <input
                 className="input"
@@ -1373,7 +1567,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
 
           {/* 抽帧分类：决定尾部怎么处理 —— 完整保留，还是裁到能无缝循环 */}
           <label className="field">
-            <span className="field__label">抽帧分类</span>
+            <span className="field__label">{t('fs.mode', lang)}</span>
             <select
               className="input select"
               value={captureMode}
@@ -1382,28 +1576,29 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
               }
               disabled={busy}
             >
-              <option value="normal">普通抽帧（首尾完整保留 · 特效 / 非循环）</option>
-              <option value="loop">循环帧（自动找循环点，裁掉尾部多余帧）</option>
+              <option value="normal">{t('fs.mode.normal', lang)}</option>
+              <option value="loop">{t('fs.mode.loop', lang)}</option>
             </select>
             <span className="field__hint">
-              {captureMode === 'normal'
-                ? '逐帧完整保留：首帧必定是视频第一个画面，末帧必定是最后一个画面；中间重复帧也不删（特效的停留帧是节奏的一部分）。适合爆炸、刀光、冲击波这类一次性特效。'
-                : '抽完自动比对，把尾部多余重复段裁掉，得到能接回开头的序列。适合走路、待机、挥手这类循环动作。'}
+              {captureMode === 'normal' ? t('fs.mode.normalHint', lang) : t('fs.mode.loopHint', lang)}
             </span>
           </label>
 
           {/* 预计数量：抽帧前就知道会出多少帧，避免抽完才发现太多或太少 */}
           <div className="frame-estimate">
             <span>
-              预计抽出{' '}
-              <b>{Math.min(maxFrames, Math.max(2, Math.floor((endSec - startSec) * fps) + 1))}</b> 帧
+              {t('fs.estimate', lang, {
+                count: String(Math.min(maxFrames, Math.max(2, targetFrames))),
+              })}
             </span>
             <span className="field__hint">
-              （{(endSec - startSec).toFixed(2)}s × {fps} fps
-              {Math.floor((endSec - startSec) * fps) + 1 > maxFrames
-                ? `，已撞到上限 ${maxFrames}`
+              {t('fs.estimateRange', lang, { seconds: (endSec - startSec).toFixed(2) })}
+              {targetFrames > maxFrames
+                ? t('fs.estimateCapped', lang, { max: String(maxFrames) })
                 : ''}
-              ）
+              {Math.min(maxFrames, Math.max(2, targetFrames)) <= 2
+                ? t('fs.estimateOnlyTwo', lang)
+                : ''}
             </span>
           </div>
 
@@ -1414,12 +1609,10 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
               onChange={(event) => setAutoFindLoop(event.target.checked)}
               disabled={busy}
             />
-            抽帧前自动找循环点（勾了就不要手点右边的「寻找循环点」）
+            {t('fs.autoLoop', lang)}
           </label>
 
-          <span className="field__hint">
-            抽帧只负责切图，不做任何颜色处理。去背景请到「批量抠图」页 —— 模型或传统都行，参数可以反复调。
-          </span>
+          <span className="field__hint">{t('fs.extractHint', lang)}</span>
 
           <div className="actions">
             <button
@@ -1428,21 +1621,19 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
               onClick={() => void handleExtract()}
               disabled={busy || !selected}
             >
-              {busy && progressText ? progressText : busy ? '处理中…' : '生成预览'}
+              {busy && progressText ? progressText : busy ? t('fs.extracting', lang) : t('fs.extract', lang)}
             </button>
             <button
               type="button"
               className="btn btn--ghost"
               onClick={() => void handleFindLoop()}
               disabled={busy || !selected || autoFindLoop}
-              title="自动找出与起始帧最接近的时刻，把结束时间设成那里，首尾帧一致循环不跳"
+              title={t('fs.autoLoopTitle', lang)}
             >
-              {busy && progressText.includes('扫描') ? '寻找中…' : '寻找循环点'}
+              {scanningLoop ? t('fs.findingLoop', lang) : t('fs.findLoop', lang)}
             </button>
             {frames.length > 0 ? (
-              <span className="field__hint">
-                去背景请到「批量抠图」页处理，参数可以反复调。
-              </span>
+              <span className="field__hint">{t('fs.matteHint', lang)}</span>
             ) : null}
             {extractedSummary ? <span className="field__hint">{extractedSummary}</span> : null}
           </div>
@@ -1457,7 +1648,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                   className="btn btn--ghost"
                   onClick={() => void window.skeletonElf.frames.openDir(lastSavedId)}
                 >
-                  定位文件夹
+                  {t('fs.list.openDir', lang)}
                 </button>
               ) : null}
             </div>
@@ -1475,14 +1666,20 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
         {frames.length > 0 ? (
           <section className="card">
             <div className="card__head">
-              <h2>帧预览</h2>
-              <span className="tag">{frames.length} 帧{backgroundRemoved ? ' · 已去背景' : ''}</span>
+              <h2>{t('fs.preview.title', lang)}</h2>
+              <span className="tag">
+                {t('fs.list.frames', lang, { count: String(frames.length) })}
+                {backgroundRemoved ? ` · ${t('fs.preview.bgRemoved', lang)}` : ''}
+              </span>
             </div>
 
             {/* 播放预览：按当前 fps 循环播放，直接看动画效果 */}
             <div className="frame-player">
               <div className="frame-player__stage">
-                <img src={frames[Math.min(playIndex, frames.length - 1)]} alt="预览播放" />
+                <img
+                  src={frames[Math.min(playIndex, frames.length - 1)]}
+                  alt={t('fs.preview.title', lang)}
+                />
               </div>
               <div className="frame-player__bar">
                 <button
@@ -1490,7 +1687,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                   className={`btn ${playing ? 'btn--primary' : 'btn--ghost'}`}
                   onClick={() => setPlaying((prev) => !prev)}
                 >
-                  {playing ? '⏸ 暂停' : '▶ 播放'}
+                  {playing ? t('fs.video.pauseIcon', lang) : t('fs.video.playIcon', lang)}
                 </button>
                 <input
                   className="range frame-player__scrub"
@@ -1504,13 +1701,17 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                   }}
                 />
                 <span className="field__saved">
-                  第 {Math.min(playIndex, frames.length - 1) + 1} / {frames.length} 帧 · {fps} fps
+                  {t('lt.frameOf', lang, {
+                    index: String(Math.min(playIndex, frames.length - 1) + 1),
+                    total: String(frames.length),
+                  })}{' '}
+                  · {fps} fps
                 </span>
                 <select
                   className="input select frame-player__speed"
                   value={playSpeed}
                   onChange={(event) => setPlaySpeed(Number(event.target.value))}
-                  title="播放速度倍率"
+                  title={t('fs.preview.speed', lang)}
                 >
                   <option value={0.5}>0.5×</option>
                   <option value={1}>1×</option>
@@ -1540,7 +1741,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                     <button
                       type="button"
                       className="frame-item__edit"
-                      title="编辑这一帧（去背景等，只改内存，保存时才写盘）"
+                      title={t('fs.preview.editTitle', lang)}
                       onClick={(event) => {
                         event.stopPropagation();
                         setEditingIndex(index);
@@ -1556,7 +1757,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                     <button
                       type="button"
                       className="frame-item__edit"
-                      title="删除这一帧（只改内存，保存时才写盘）"
+                      title={t('fs.preview.delTitle', lang)}
                       onClick={(event) => {
                         event.stopPropagation();
                         handleRemoveFrame(index);
@@ -1574,19 +1775,17 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
         {frames.length > 0 ? (
           <section className="card">
             <div className="card__head">
-              <h2>保存为帧动画项目</h2>
+              <h2>{t('fs.save.title', lang)}</h2>
             </div>
             <label className="field">
-              <span className="field__label">文件夹名称</span>
+              <span className="field__label">{t('fs.save.nameLabel', lang)}</span>
               <input
                 className="input"
                 value={projectName}
-                placeholder="例如 knight_run"
+                placeholder={t('fs.save.namePlaceholder', lang)}
                 onChange={(event) => setProjectName(event.target.value)}
               />
-              <span className="field__hint">
-                保存到 data/frames/&lt;文件夹名&gt;/，每帧一个 PNG（frame_000.png…）并附 meta.json。同名会自动加 _2。
-              </span>
+              <span className="field__hint">{t('fs.save.hint', lang)}</span>
             </label>
             <div className="actions">
               <button
@@ -1595,15 +1794,19 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                 onClick={() => void handleSave()}
                 disabled={saving}
               >
-                {saving ? '保存中…' : savedPath ? '✓ 已保存' : `保存 ${frames.length} 帧`}
+                {saving
+                  ? t('fs.save.saving', lang)
+                  : savedPath
+                    ? t('fs.save.savedBadge', lang)
+                    : t('fs.save.btnCount', lang, { count: String(frames.length) })}
               </button>
               <button type="button" className="btn btn--ghost" onClick={() => void window.skeletonElf.frames.openDir()}>
-                打开帧动画目录
+                {t('fs.save.openDir', lang)}
               </button>
             </div>
             {savedPath ? (
               <span className="field__hint field__hint--ok">
-                已保存 <b>{frames.length}</b> 帧到 <code className="ref-strip__name">{savedPath}</code>
+                {t('fs.save.saved', lang, { count: String(frames.length), path: savedPath })}
               </span>
             ) : null}
           </section>
@@ -1613,22 +1816,39 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       <div className="stack frame-sidebar">
         <section className="card">
           <div className="card__head">
-            <h2>已抽帧的集合</h2>
+            <h2>{t('fs.list.title', lang)}</h2>
             <button type="button" className="btn btn--ghost" onClick={() => void loadProjects()}>
-              刷新
+              {t('fs.refresh', lang)}
             </button>
           </div>
           {projects.length === 0 ? (
-            <p className="muted">
-              还没有抽帧文件夹。选视频抽帧后会自动保存，这里就会出现。
-            </p>
+            <p className="muted">{t('fs.list.empty', lang)}</p>
           ) : (
             <div className="frame-projects">
               {projects.map((project) => (
                 <div key={project.id} className="frame-project">
                   <div className="frame-project__head">
-                    <strong>{project.name}</strong>
-                    <span className="tag">{project.frameFileNames.length} 帧</span>
+                    {renamingId === project.id ? (
+                      <input
+                        className="input"
+                        value={renameValue}
+                        autoFocus
+                        placeholder={t('fs.rename.placeholder', lang)}
+                        onChange={(event) => setRenameValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') void handleRenameProject(project.id);
+                          if (event.key === 'Escape') {
+                            setRenamingId(null);
+                            setRenameValue('');
+                          }
+                        }}
+                      />
+                    ) : (
+                      <strong>{project.name}</strong>
+                    )}
+                    <span className="tag">
+                      {t('fs.list.frames', lang, { count: String(project.frameFileNames.length) })}
+                    </span>
                   </div>
                   <div className="frame-project__thumbs">
                     {project.frameUrls.slice(0, 6).map((url) => (
@@ -1644,8 +1864,9 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                     ))}
                   </div>
                   <span className="field__hint">
-                    {project.fps} fps · {project.width}×{project.height} · {project.sourceVideo || '未知来源'}
-                    {project.backgroundRemoved ? ' · 已去背景' : ''}
+                    {project.fps} fps · {project.width}×{project.height} ·{' '}
+                    {project.sourceVideo || t('fs.unknownSource', lang)}
+                    {project.backgroundRemoved ? ` · ${t('fs.preview.bgRemoved', lang)}` : ''}
                   </span>
                   <div className="actions">
                     <button
@@ -1653,7 +1874,7 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                       className="btn btn--primary"
                       onClick={() => setPreviewProject(project)}
                     >
-                      播放预览
+                      {t('fs.list.play', lang)}
                     </button>
                     <button
                       type="button"
@@ -1661,14 +1882,47 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
                       title={project.absPath}
                       onClick={() => void window.skeletonElf.frames.openDir(project.id)}
                     >
-                      定位文件夹
+                      {t('fs.list.openDir', lang)}
                     </button>
+                    {renamingId === project.id ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn--primary"
+                          onClick={() => void handleRenameProject(project.id)}
+                        >
+                          {t('fs.rename.confirm', lang)}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() => {
+                            setRenamingId(null);
+                            setRenameValue('');
+                          }}
+                        >
+                          {t('fs.rename.cancel', lang)}
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn--ghost"
+                        onClick={() => {
+                          setRenamingId(project.id);
+                          setRenameValue(project.name);
+                        }}
+                        title={t('fs.rename.title', lang)}
+                      >
+                        {t('fs.list.rename', lang)}
+                      </button>
+                    )}
                     <button
                       type="button"
                       className="btn btn--ghost btn--danger"
                       onClick={() => void handleRemoveProject(project.id)}
                     >
-                      删除
+                      {t('fs.list.remove', lang)}
                     </button>
                   </div>
                 </div>
@@ -1681,7 +1935,9 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
       {/* 播放预览窗口：从集合卡片点「播放预览」打开 */}
       {previewProject ? (
         <FramePlayerModal
-          title={`${previewProject.name} · ${previewProject.frameFileNames.length} 帧`}
+          title={`${previewProject.name} · ${t('fs.list.frames', lang, {
+            count: String(previewProject.frameFileNames.length),
+          })}`}
           frameUrls={previewProject.frameUrls}
           fps={previewProject.fps}
           onClose={() => setPreviewProject(null)}
@@ -1695,14 +1951,14 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
         <div className="modal-backdrop">
           <div className="modal">
             <header className="modal__head">
-              <h2>选择视频</h2>
+              <h2>{t('fs.picker.title', lang)}</h2>
               <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(false)}>
                 ×
               </button>
             </header>
             <div className="modal__body">
               {videos.length === 0 ? (
-                <p className="muted">素材库里还没有视频。先去「素材库」导入。</p>
+                <p className="muted">{t('fs.picker.empty', lang)}</p>
               ) : (
                 <div className="picker-grid">
                   {videos.map((item) => (
@@ -1739,10 +1995,10 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
               )}
             </div>
             <footer className="modal__foot">
-              <span className="field__hint">点视频即选定</span>
+              <span className="field__hint">{t('fs.picker.foot', lang)}</span>
               <div className="actions">
                 <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(false)}>
-                  取消
+                  {t('fs.btn.cancel', lang)}
                 </button>
               </div>
             </footer>
@@ -1773,7 +2029,10 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
             setEditingIndex(null);
             setEditingMeta(null);
             setNotice(
-              `已更新第 ${target + 1} 帧（还在内存里，点下面「保存 ${frames.length} 帧」才会写入磁盘）`,
+              t('fs.msg.frameUpdated', lang, {
+                frame: String(target + 1),
+                total: String(frames.length),
+              }),
             );
           }}
         />

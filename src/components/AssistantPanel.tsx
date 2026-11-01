@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AssistantMessage } from '@shared/ipc';
+import { t, useLang } from '../i18n';
 
 interface ChatEntry {
   role: 'user' | 'assistant';
@@ -20,6 +21,7 @@ interface AssistantPanelProps {
  * 这样不管面板是开是关，用户都有一个显眼的入口。
  */
 export function AssistantPanel({ open, onOpenChange }: AssistantPanelProps): React.JSX.Element {
+  const [lang] = useLang();
   const [entries, setEntries] = useState<ChatEntry[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -65,9 +67,9 @@ export function AssistantPanel({ open, onOpenChange }: AssistantPanelProps): Rea
         type="button"
         className="assistant-rail"
         onClick={() => onOpenChange(true)}
-        title="打开 AI 助手（问怎么用这个软件 / 动画怎么做）"
+        title={t('ap.openTitle', lang)}
       >
-        <span className="assistant-rail__hint">AI 助手</span>
+        <span className="assistant-rail__hint">{t('ap.title', lang)}</span>
       </button>
     );
   }
@@ -76,8 +78,8 @@ export function AssistantPanel({ open, onOpenChange }: AssistantPanelProps): Rea
     <aside className="assistant">
       <header className="assistant__head">
         <div>
-          <strong>AI 助手</strong>
-          <span className="assistant__model">{model || '文本槽位模型'}</span>
+          <strong>{t('ap.title', lang)}</strong>
+          <span className="assistant__model">{model || t('ap.modelFallback', lang)}</span>
         </div>
         <div className="assistant__actions">
           <button
@@ -86,13 +88,13 @@ export function AssistantPanel({ open, onOpenChange }: AssistantPanelProps): Rea
             onClick={() => setEntries([])}
             disabled={entries.length === 0 || busy}
           >
-            清空
+            {t('ap.clear', lang)}
           </button>
           <button
             type="button"
             className="btn btn--ghost"
             onClick={() => onOpenChange(false)}
-            title="收起（收起后右侧留一条，或点顶栏按钮再打开）"
+            title={t('ap.collapseTitle', lang)}
           >
             ›
           </button>
@@ -102,9 +104,14 @@ export function AssistantPanel({ open, onOpenChange }: AssistantPanelProps): Rea
       <div className="assistant__list" ref={listRef}>
         {entries.length === 0 ? (
           <p className="muted assistant__empty">
-            问点什么吧 —— 比如「这个应用怎么做待机呼吸动画」「去背景紫边怎么修」「抠图后边缘发白怎么办」。
-            <br />
-            走的是「模型设置 → 文本 / 推理」里的同一个模型。
+            {t('ap.empty', lang)
+              .split('\n')
+              .map((line, index) => (
+                <span key={line}>
+                  {index > 0 ? <br /> : null}
+                  {line}
+                </span>
+              ))}
           </p>
         ) : (
           entries.map((entry, index) => (
@@ -116,7 +123,9 @@ export function AssistantPanel({ open, onOpenChange }: AssistantPanelProps): Rea
             </div>
           ))
         )}
-        {busy ? <div className="assistant__bubble assistant__bubble--assistant">思考中…</div> : null}
+        {busy ? (
+          <div className="assistant__bubble assistant__bubble--assistant">{t('ap.thinking', lang)}</div>
+        ) : null}
       </div>
 
       <div className="assistant__input">
@@ -125,7 +134,7 @@ export function AssistantPanel({ open, onOpenChange }: AssistantPanelProps): Rea
           className="input textarea"
           rows={3}
           value={input}
-          placeholder="Enter 发送，Shift+Enter 换行"
+          placeholder={t('ap.inputPlaceholder', lang)}
           onChange={(event) => setInput(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
@@ -136,7 +145,7 @@ export function AssistantPanel({ open, onOpenChange }: AssistantPanelProps): Rea
         />
         <div className="actions">
           <button type="button" className="btn btn--primary" onClick={() => void send()} disabled={busy || !input.trim()}>
-            {busy ? '发送中…' : '发送'}
+            {busy ? t('ap.sending', lang) : t('ap.send', lang)}
           </button>
         </div>
       </div>

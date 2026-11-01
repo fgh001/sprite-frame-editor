@@ -6,6 +6,7 @@ import { buildBackgroundPrompt, estimateImageCost } from '../../shared/pricing';
 import { getDataDirs } from '../core/paths';
 import { addItems, createId } from '../core/knowledge';
 import { getSlotRuntime, type SlotRuntime } from '../core/settings';
+import { msg } from '../core/msg';
 
 /** 出图通常比文本慢，给足时间（2K 图偶尔要 60s+） */
 const REQUEST_TIMEOUT_MS = 180_000;
@@ -49,15 +50,21 @@ async function describeHttpError(res: Response): Promise<string> {
   }
   const hint =
     res.status === 401
-      ? '（API Key 无效或未开通该模型）'
+      ? msg('err.image.hint401')
       : res.status === 403
-        ? '（没有权限，检查模型是否已在控制台开通）'
+        ? msg('err.image.hint403')
         : res.status === 404
-          ? '（接口地址不存在，检查 Base URL）'
+          ? msg('err.image.hint404')
           : res.status === 429
-            ? '（触发限流，稍后再试）'
+            ? msg('err.image.hint429')
             : '';
-  return `HTTP ${res.status} ${res.statusText}${hint}${detail ? `：${String(detail).slice(0, 400)}` : ''}`;
+  const detailPart = detail ? msg('err.image.httpDetail', { detail: String(detail).slice(0, 400) }) : '';
+  return msg('err.image.http', {
+    status: String(res.status),
+    statusText: res.statusText,
+    hint,
+    detail: detailPart,
+  });
 }
 
 async function postJson(url: string, apiKey: string, body: unknown): Promise<ImageApiResponse> {
@@ -75,13 +82,13 @@ async function postJson(url: string, apiKey: string, body: unknown): Promise<Ima
     });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`调用 ${url} 失败：${reason}（检查网络 / 代理 / Base URL）`);
+    throw new Error(msg('err.image.callFailed', { url, reason }));
   }
   if (!response.ok) throw new Error(await describeHttpError(response));
   try {
     return (await response.json()) as ImageApiResponse;
   } catch {
-    throw new Error(`接口 ${url} 返回的不是合法 JSON`);
+    throw new Error(msg('err.image.badJson', { url }));
   }
 }
 
@@ -128,7 +135,7 @@ function detectExtension(buffer: Buffer): string {
 
 async function toImageBuffer(item: ImageApiItem): Promise<Buffer> {
   if (item.b64_json) return Buffer.from(item.b64_json, 'base64');
-  if (!item.url) throw new Error('服务商返回的图片既没有 b64_json 也没有 url');
+  if (!item.url) throw new Error(msg('err.image.noImageData'));
 
   // 豆包等返回的 URL 24 小时失效 —— 必须立刻下载存档
   let response: Response;
@@ -136,9 +143,9 @@ async function toImageBuffer(item: ImageApiItem): Promise<Buffer> {
     response = await fetch(item.url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`下载生成结果失败：${reason}`);
+    throw new Error(msg('err.image.downloadFailed', { reason }));
   }
-  if (!response.ok) throw new Error(`下载生成结果失败：HTTP ${response.status}`);
+  if (!response.ok) throw new Error(msg('err.image.downloadHttp', { status: String(response.status) }));
   return Buffer.from(await response.arrayBuffer());
 }
 
@@ -159,17 +166,19 @@ function buildThumb(buffer: Buffer, width: number, height: number): Buffer {
  */
 export async function generateImages(input: GenerateImageInput): Promise<GenerateImageResult> {
   const prompt = (input.prompt ?? '').trim();
-  if (!prompt) throw new Error('提示词不能为空');
-  if (prompt.length > MAX_PROMPT_LENGTH) throw new Error(`提示词过长（上限 ${MAX_PROMPT_LENGTH} 字）`);
+  if (!prompt) throw new Error(msg('err.image.emptyPrompt'));
+  if (prompt.length > MAX_PROMPT_LENGTH) {
+    throw new Error(msg('err.image.promptTooLong', { max: String(MAX_PROMPT_LENGTH) }));
+  }
 
   const background = normalizeBackground(input.backgroundColor);
   const count = Math.min(Math.max(Math.trunc(Number(input.count) || 1), 1), MAX_IMAGES);
   const runtime = await getSlotRuntime('image');
 
-  if (!runtime.baseUrl) throw new Error('图像槽位还没有配置 Base URL');
-  if (!runtime.model) throw new Error('图像槽位还没有配置模型');
+  if (!runtime.baseUrl) throw new Error(msg('err.image.noBaseUrl'));
+  if (!runtime.model) throw new Error(msg('err.image.noModel'));
   if (!runtime.apiKey && runtime.providerId !== 'ollama') {
-    throw new Error('图像槽位还没有填写 API Key，请到「模型设置 → 图像生成」里保存');
+    throw new Error(msg('err.image.noKey'));
   }
 
   // 纯色背景约束拼在用户提示词后面
@@ -187,7 +196,7 @@ export async function generateImages(input: GenerateImageInput): Promise<Generat
       const body = await postJson(endpoint, runtime.apiKey, plan.body);
       const items = Array.isArray(body.data) ? body.data : [];
       if (items.length === 0) {
-        lastError = body.error?.message ?? '接口没有返回任何图片';
+        lastError = body.error?.message ?? msg('err.image.noImages');
         continue;
       }
       rawItems.push(...items);
@@ -199,7 +208,9 @@ export async function generateImages(input: GenerateImageInput): Promise<Generat
   }
 
   if (rawItems.length === 0) {
-    throw new Error(lastError ? `生成失败：${lastError}` : '接口没有返回任何图片');
+    throw new Error(
+      lastError ? msg('err.image.genFailed', { reason: lastError }) : msg('err.image.noImages'),
+    );
   }
 
   const dirs = getDataDirs();
@@ -264,7 +275,7 @@ export async function generateImages(input: GenerateImageInput): Promise<Generat
     }
   }
 
-  if (images.length === 0) throw new Error('生成结果为空，可能被服务商过滤，换提示词再试');
+  if (images.length === 0) throw new Error(msg('err.image.emptyResult'));
   if (knowledgeItems.length > 0) addItems(knowledgeItems);
 
   return {

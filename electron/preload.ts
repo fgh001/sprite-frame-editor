@@ -3,6 +3,7 @@ import type {
   AssistantMessage,
   GenerateImageInput,
   GenerateLoopVideoInput,
+  Lang,
   LoopVideoProgress,
   SaveEditedImageInput,
   SaveFrameProjectInput,
@@ -26,6 +27,8 @@ const api: SkeletonElfApi = {
   ui: {
     getTheme: () => ipcRenderer.invoke('ui:getTheme'),
     setTheme: (theme: ThemeMode) => ipcRenderer.invoke('ui:setTheme', theme),
+    getLang: () => ipcRenderer.invoke('ui:getLang'),
+    setLang: (lang: Lang) => ipcRenderer.invoke('ui:setLang', lang),
   },
   settings: {
     getSlots: () => ipcRenderer.invoke('settings:getSlots'),
@@ -106,6 +109,7 @@ const api: SkeletonElfApi = {
     list: () => ipcRenderer.invoke('kb:list'),
     importFiles: () => ipcRenderer.invoke('kb:importFiles'),
     update: (input: UpdateKnowledgeInput) => ipcRenderer.invoke('kb:update', input),
+    rename: (id: string, name: string) => ipcRenderer.invoke('kb:rename', id, name),
     remove: (id: string) => ipcRenderer.invoke('kb:remove', id),
   },
   video: {
@@ -123,6 +127,9 @@ const api: SkeletonElfApi = {
     /** 独立列出 outputs/ 下的抠图结果（不依赖源集合是否还在） */
     listOutputs: () => ipcRenderer.invoke('frames:listOutputs'),
     save: (input: SaveFrameProjectInput) => ipcRenderer.invoke('frames:save', input),
+    rename: (id: string, name: string) => ipcRenderer.invoke('frames:rename', id, name),
+    renameOutput: (name: string, nextName: string) =>
+      ipcRenderer.invoke('frames:renameOutput', name, nextName),
     remove: (id: string) => ipcRenderer.invoke('frames:remove', id),
     /** 删掉集合里的单个帧文件（找循环帧页手动剔帧用） */
     removeFrame: (id: string, fileName: string) =>

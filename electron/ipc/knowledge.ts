@@ -25,6 +25,7 @@ import {
   thumbFileNameOf,
 } from '../core/knowledge';
 import { resolveFrameUrl } from './frames';
+import { msg } from '../core/msg';
 
 const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 const VIDEO_EXTS = new Set(['.mp4', '.webm', '.mov', '.mkv', '.avi']);
@@ -221,13 +222,16 @@ function makeThumb(buffer: Buffer): Buffer {
 export async function importKnowledgeFiles(): Promise<ImportResult> {
   const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
   const options: Electron.OpenDialogOptions = {
-    title: '导入到素材库（图片 / 视频）',
+    title: msg('dialog.import.title'),
     properties: ['openFile', 'multiSelections'],
     filters: [
-      { name: '图片与视频', extensions: [...IMAGE_EXTS, ...VIDEO_EXTS].map((ext) => ext.slice(1)) },
-      { name: '图片', extensions: [...IMAGE_EXTS].map((ext) => ext.slice(1)) },
-      { name: '视频', extensions: [...VIDEO_EXTS].map((ext) => ext.slice(1)) },
-      { name: '全部文件', extensions: ['*'] },
+      {
+        name: msg('dialog.import.media'),
+        extensions: [...IMAGE_EXTS, ...VIDEO_EXTS].map((ext) => ext.slice(1)),
+      },
+      { name: msg('dialog.import.images'), extensions: [...IMAGE_EXTS].map((ext) => ext.slice(1)) },
+      { name: msg('dialog.import.videos'), extensions: [...VIDEO_EXTS].map((ext) => ext.slice(1)) },
+      { name: msg('dialog.import.all'), extensions: ['*'] },
     ],
   };
 
@@ -326,7 +330,7 @@ export async function importKnowledgeFiles(): Promise<ImportResult> {
 export function updateKnowledge(input: UpdateKnowledgeInput): KnowledgeView {
   const existing = listItems();
   const target = existing.find((item) => item.id === input.id);
-  if (!target) throw new Error('素材不存在');
+  if (!target) throw new Error(msg('err.kb.missing'));
 
   const updated: KnowledgeItem = {
     ...target,
@@ -347,7 +351,55 @@ export function updateKnowledge(input: UpdateKnowledgeInput): KnowledgeView {
 }
 
 export function removeKnowledge(id: string): void {
-  if (!removeItem(id, true)) throw new Error('素材不存在');
+  if (!removeItem(id, true)) throw new Error(msg('err.kb.missing'));
+}
+
+/**
+ * 重命名素材文件（改的是磁盘上的实际文件名，不是 id）。
+ *
+ * 为什么要走应用改：直接去 data/knowledge/files/images 里改名，索引 index.json 里
+ * 还记着旧文件名，界面上的缩略图会立刻变成破图。
+ *
+ * 缩略图按 `<id>.png` 命名，跟文件名无关，所以不用动。
+ * 重名直接报错、不覆盖。
+ */
+export function renameKnowledge(id: string, nextName: string): KnowledgeView {
+  const existing = listItems();
+  const target = existing.find((item) => item.id === id);
+  if (!target) throw new Error(msg('err.kb.missing'));
+
+  const raw = String(nextName ?? '').trim();
+  if (!raw) throw new Error(msg('err.kb.emptyName'));
+
+  const originalExt = path.extname(target.fileName);
+  // 去掉非法字符；用户没写扩展名就自动补回原来的
+  let safe = raw.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!safe) throw new Error(msg('err.kb.emptyName'));
+  const typedExt = path.extname(safe);
+  if (!typedExt) {
+    safe = `${safe}${originalExt}`;
+  } else if (typedExt.toLowerCase() !== originalExt.toLowerCase()) {
+    // 用户写了个别的扩展名 —— 以原扩展名为准，否则系统会认不出文件类型
+    safe = `${safe.slice(0, safe.length - typedExt.length)}${originalExt}`;
+  }
+
+  if (safe === target.fileName) return toView(target);
+
+  const dir = mediaDirOf(target.kind);
+  const dest = path.join(dir, safe);
+  if (fs.existsSync(dest)) {
+    throw new Error(msg('err.kb.nameExists', { name: safe }));
+  }
+
+  const source = resolveItemPath(target);
+  if (!fs.existsSync(source)) throw new Error(msg('err.kb.sourceGone'));
+
+  fs.renameSync(source, dest);
+
+  const updated: KnowledgeItem = { ...target, fileName: safe };
+  removeItem(id, false);
+  addItems([updated]);
+  return toView(updated);
 }
 
 function toError(err: unknown): IpcErr {
@@ -373,9 +425,9 @@ export function registerKnowledgeIpc(): void {
 
   ipcMain.handle('kb:update', async (_event, raw: unknown): Promise<IpcResult<KnowledgeView>> => {
     try {
-      if (!raw || typeof raw !== 'object') throw new Error('参数无效');
+      if (!raw || typeof raw !== 'object') throw new Error(msg('err.kb.badArgs'));
       const input = raw as Partial<UpdateKnowledgeInput>;
-      if (typeof input.id !== 'string' || !input.id) throw new Error('缺少素材 id');
+      if (typeof input.id !== 'string' || !input.id) throw new Error(msg('err.kb.noId'));
       return {
         ok: true,
         data: updateKnowledge({
@@ -392,11 +444,25 @@ export function registerKnowledgeIpc(): void {
 
   ipcMain.handle('kb:remove', async (_event, id: unknown): Promise<IpcResult<null>> => {
     try {
-      if (typeof id !== 'string' || !id) throw new Error('缺少素材 id');
+      if (typeof id !== 'string' || !id) throw new Error(msg('err.kb.noId'));
       removeKnowledge(id);
       return { ok: true, data: null };
     } catch (err) {
       return toError(err);
     }
   });
+
+  /** 重命名素材文件（改磁盘实际文件名 + 索引；重名直接报错不覆盖） */
+  ipcMain.handle(
+    'kb:rename',
+    async (_event, id: unknown, name: unknown): Promise<IpcResult<KnowledgeView>> => {
+      try {
+        if (typeof id !== 'string' || !id) throw new Error(msg('err.kb.noId'));
+        if (typeof name !== 'string') throw new Error(msg('err.kb.badNewName'));
+        return { ok: true, data: renameKnowledge(id, name) };
+      } catch (err) {
+        return toError(err);
+      }
+    },
+  );
 }

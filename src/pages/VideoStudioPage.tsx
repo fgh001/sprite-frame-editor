@@ -7,6 +7,8 @@ import type {
 } from '@shared/ipc';
 import { getProviderPreset } from '@shared/providers';
 import { setBusy as markBusy, tryStart } from '../state/busy';
+import { notifyDataChanged, useDataRefresh } from '../state/refresh';
+import { t, useLang } from '../i18n';
 
 interface VideoStudioPageProps {
   onOpenModelSettings: () => void;
@@ -26,6 +28,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): React.JSX.Element {
+  const [lang] = useLang();
   const [slot, setSlot] = useState<SlotSettingsView | null>(null);
   const [images, setImages] = useState<KnowledgeView[]>([]);
   const [selected, setSelected] = useState<KnowledgeView | null>(null);
@@ -69,6 +72,11 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
     })();
     void loadImages();
   }, [loadImages]);
+
+  /* 素材库导入/改名/删除图片后，这里的候选图列表也要刷新 */
+  useDataRefresh(() => {
+    void loadImages();
+  });
 
   // 订阅主进程推送的进度
   useEffect(() => {
@@ -120,6 +128,8 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
     }
     setResult(res.data);
     void loadImages();
+    // 新视频进了素材库：素材库页、帧动画页的视频列表都要刷新
+    notifyDataChanged();
   };
 
   // AI 优化提示词：只回填输入框，绝不自动触发生成
@@ -129,11 +139,11 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
     const res = await window.skeletonElf.prompts.optimize(prompt, 'video');
     setOptimizing(false);
     if (!res.ok) {
-      setOptimizeNote(`优化失败：${res.error}`);
+      setOptimizeNote(t('vd.optimize.failed', lang, { error: res.error }));
       return;
     }
     setPrompt(res.data.prompt);
-    setOptimizeNote('已回填优化后的提示词，确认满意再点「生成循环视频」');
+    setOptimizeNote(t('vd.optimize.done', lang));
   };
 
   const toggleReference = (id: string): void => {
@@ -147,36 +157,39 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
       <div className="stack">
         <section className="card">
           <div className="card__head">
-            <h2>图片 → 循环视频</h2>
+            <h2>{t('vd.title', lang)}</h2>
             <span className={`tag ${ready ? 'tag--ok' : 'tag--warn'}`}>
-              {ready ? '视频槽位已就绪' : slotEnabled ? '视频槽位未配置 Key' : '视频槽位已停用'}
+              {ready
+                ? t('vd.slot.ready', lang)
+                : slotEnabled
+                  ? t('vd.slot.noKey', lang)
+                  : t('vd.slot.disabled', lang)}
             </span>
           </div>
-          <p className="muted">
-            用豆包 Seedance 的「首帧 + 尾帧」模式：把同一张图同时当作首尾帧，生成的视频天然无缝循环，
-            适合做精灵图的待机 / 呼吸动画。
-          </p>
+          <p className="muted">{t('vd.intro', lang)}</p>
 
           <div className="studio-slot">
             {slot ? (
               <>
                 <span className="studio-slot__label">{preset?.label ?? slot.providerId}</span>
-                <code>{slot.model || '未设置模型'}</code>
+                <code>{slot.model || t('vd.slot.noModel', lang)}</code>
               </>
             ) : (
-              <span className="muted">正在读取视频槽位…</span>
+              <span className="muted">{t('vd.slot.loading', lang)}</span>
             )}
             <button type="button" className="btn btn--ghost" onClick={onOpenModelSettings}>
-              去配置视频槽位
+              {t('vd.slot.configure', lang)}
             </button>
           </div>
 
           <div className="field">
             <span className="field__label">
-              选择图片（来自素材库）
-              <em className="field__saved">{images.length} 张可选</em>
+              {t('vd.pick.label', lang)}
+              <em className="field__saved">
+                {t('vd.pick.count', lang, { count: String(images.length) })}
+              </em>
             </span>
-            {loadingImages ? <span className="field__hint">正在读取素材库…</span> : null}
+            {loadingImages ? <span className="field__hint">{t('vd.pick.loading', lang)}</span> : null}
 
             {/* 主图也只占一行：已选小缩略图 + 按钮，完整列表在弹窗里选 */}
             {selected ? (
@@ -188,45 +201,45 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
                   {selected.fileName}
                 </code>
                 <button type="button" className="btn btn--ghost" onClick={() => setImagePickerOpen(true)}>
-                  更换图片
+                  {t('vd.btn.changeImage', lang)}
+                </button>
+                {/* 取消选择：不然选错了只能重启应用，或者把素材库里的图删掉 */}
+                <button type="button" className="btn btn--ghost" onClick={() => setSelected(null)}>
+                  {t('vd.btn.clearSelection', lang)}
                 </button>
               </div>
             ) : (
               <div className="actions">
                 <button type="button" className="btn btn--ghost" onClick={() => setImagePickerOpen(true)}>
-                  选择图片
+                  {t('vd.btn.pickImage', lang)}
                 </button>
                 {images.length === 0 && !loadingImages ? (
-                  <span className="field__hint">
-                    素材库还没有图片。先去「图像生成」出一张，或到「素材库」导入现成图片。
-                  </span>
+                  <span className="field__hint">{t('vd.hint.noImages', lang)}</span>
                 ) : null}
               </div>
             )}
           </div>
 
           <div className="field">
-            <span className="field__label">生成方式</span>
+            <span className="field__label">{t('vd.mode', lang)}</span>
             <div className="bg-swatches">
               <button
                 type="button"
                 className={`bg-chip${mode === 'direct' ? ' is-active' : ''}`}
                 onClick={() => setMode('direct')}
               >
-                直接生成（首尾帧循环）
+                {t('vd.mode.direct', lang)}
               </button>
               <button
                 type="button"
                 className={`bg-chip${mode === 'reference' ? ' is-active' : ''}`}
                 onClick={() => setMode('reference')}
               >
-                参考素材生成
+                {t('vd.mode.reference', lang)}
               </button>
             </div>
             <span className="field__hint">
-              {mode === 'direct'
-                ? '首帧和尾帧用同一张图，生成结果天然无缝循环 —— 要循环动画就选这个。'
-                : '用素材库里的图片当「动作参考」（最多 4 张）：只学动作节奏与姿态，不改你的角色美术；需要支持多模态参考的模型（Seedance 2.0+）。'}
+              {mode === 'direct' ? t('vd.mode.directHint', lang) : t('vd.mode.referenceHint', lang)}
             </span>
           </div>
 
@@ -236,13 +249,16 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
               checked={lockBackground}
               onChange={(event) => setLockBackground(event.target.checked)}
             />
-            锁定纯色背景（提示词里强制「背景颜色/亮度/平整度不变、不新增地面道具光斑」）
+            {t('vd.lockBackground', lang)}
           </label>
 
           {mode === 'reference' ? (
             <div className="field">
               <span className="field__label">
-                参考图 <em className="field__saved">已选 {referenceIds.length} / 4</em>
+                {t('vd.refs.label', lang)}{' '}
+                <em className="field__saved">
+                  {t('vd.refs.selected', lang, { count: String(referenceIds.length) })}
+                </em>
               </span>
 
               {/* 已选的参考图只用一条小缩略图展示，完整列表在弹窗里选，避免页面被撑长 */}
@@ -254,7 +270,7 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
                       key={`picked-${item.id}`}
                       type="button"
                       className="ref-chip"
-                      title={`${item.fileName}（点击移除）`}
+                      title={t('vd.refs.removeTitle', lang, { name: item.fileName })}
                       onClick={() => toggleReference(item.id)}
                     >
                       {item.thumbUrl ? <img src={item.thumbUrl} alt={item.fileName} /> : <span>?</span>}
@@ -262,24 +278,22 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
                     </button>
                   ))}
                 <button type="button" className="btn btn--ghost" onClick={() => setPickerOpen(true)}>
-                  选择参考图
+                  {t('vd.btn.pickRef', lang)}
                 </button>
               </div>
-              <span className="field__hint">
-                点缩略图可移除；参考视频需要公网 URL（当前未接入对象存储，暂只支持图片）。
-              </span>
+              <span className="field__hint">{t('vd.refs.hint', lang)}</span>
             </div>
           ) : null}
 
           <label className="field">
-            <span className="field__label">动作描述（可改）</span>
+            <span className="field__label">{t('vd.prompt.label', lang)}</span>
             <textarea
               className="input textarea"
               rows={3}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
             />
-            <span className="field__hint">描述越具体，动作越可控；留空会用默认的「轻微呼吸 + 摆动」。</span>
+            <span className="field__hint">{t('vd.prompt.hint', lang)}</span>
           </label>
 
           <div className="actions">
@@ -289,25 +303,25 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
               onClick={() => void handleOptimize()}
               disabled={optimizing || busy}
             >
-              {optimizing ? 'AI 优化中…' : 'AI 优化提示词'}
+              {optimizing ? t('vd.btn.optimizing', lang) : t('vd.btn.optimize', lang)}
             </button>
-            <span className="field__hint">只把优化结果填回输入框，不会自动发送；你确认后再点生成。</span>
+            <span className="field__hint">{t('vd.optimize.hint', lang)}</span>
           </div>
           {optimizeNote ? <div className="banner banner--ok">{optimizeNote}</div> : null}
 
           <div className="studio-params">
             <label className="field">
-              <span className="field__label">时长</span>
+              <span className="field__label">{t('vd.duration', lang)}</span>
               <select className="input select" value={duration} onChange={(event) => setDuration(Number(event.target.value))}>
                 {DURATIONS.map((value) => (
                   <option key={value} value={value}>
-                    {value} 秒
+                    {t('vd.seconds', lang, { count: String(value) })}
                   </option>
                 ))}
               </select>
             </label>
             <label className="field">
-              <span className="field__label">分辨率</span>
+              <span className="field__label">{t('vd.resolution', lang)}</span>
               <select
                 className="input select"
                 value={resolution}
@@ -324,15 +338,19 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
 
           <div className="actions">
             <button type="button" className="btn btn--primary" onClick={() => void handleGenerate()} disabled={busy || !ready}>
-              {busy ? '生成中…' : '生成循环视频'}
+              {busy ? t('vd.btn.generating', lang) : t('vd.btn.generate', lang)}
             </button>
-            {selected ? <span className="hint">已选：{selected.fileName}</span> : <span className="hint hint--warn">还没选图</span>}
+            {selected ? (
+              <span className="hint">{t('vd.selected', lang, { name: selected.fileName })}</span>
+            ) : (
+              <span className="hint hint--warn">{t('vd.notSelected', lang)}</span>
+            )}
           </div>
 
           {progress ? (
             <div className={`banner ${progress.stage === 'failed' ? 'banner--error' : 'banner--ok'}`}>
               {progress.message}
-              {progress.taskId ? ` · 任务 ${progress.taskId}` : ''}
+              {progress.taskId ? t('vd.taskId', lang, { id: progress.taskId }) : ''}
             </div>
           ) : null}
           {error ? <div className="banner banner--error">{error}</div> : null}
@@ -341,21 +359,25 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
         {result ? (
           <section className="card">
             <div className="card__head">
-              <h2>生成结果</h2>
+              <h2>{t('vd.result.title', lang)}</h2>
               <span className="hint">
-                {result.resolution} · {result.durationSeconds}s · {formatBytes(result.bytes)} · 耗时{' '}
-                {(result.elapsedMs / 1000).toFixed(1)}s
+                {t('vd.result.meta', lang, {
+                  res: result.resolution,
+                  sec: String(result.durationSeconds),
+                  size: formatBytes(result.bytes),
+                  elapsed: (result.elapsedMs / 1000).toFixed(1),
+                })}
               </span>
             </div>
             <video className="kb-detail__preview" src={resultUrl} controls autoPlay loop muted preload="metadata" />
             <div className="actions">
               <button type="button" className="btn btn--ghost" onClick={() => void window.skeletonElf.files.reveal(result.absPath)}>
-                定位文件
+                {t('vd.btn.reveal', lang)}
               </button>
               <button type="button" className="btn btn--ghost" onClick={() => void window.skeletonElf.files.openDir('knowledge')}>
-                打开素材库目录
+                {t('vd.btn.openLib', lang)}
               </button>
-              <span className="hint">已存入素材库（{result.fileName}）</span>
+              <span className="hint">{t('vd.result.saved', lang, { name: result.fileName })}</span>
             </div>
           </section>
         ) : null}
@@ -363,17 +385,20 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
 
       <div className="stack">
         <section className="card card--hint">
-          <h3>为什么这样能循环</h3>
-          <p className="muted">
-            首帧和尾帧都传同一张图，模型会把动作从起始姿态带回起始姿态 —— 首尾帧完全一致，
-            循环播放时没有跳帧。视频生成是异步任务：提交后要排队 + 渲染，通常 <b>1–5 分钟</b>。
-          </p>
+          <h3>{t('vd.why.title', lang)}</h3>
+          <p className="muted">{t('vd.why.body', lang)}</p>
         </section>
         <section className="card card--hint">
-          <h3>前置条件</h3>
+          <h3>{t('vd.prereq.title', lang)}</h3>
           <p className="muted">
-            1. 在「模型设置 → 视频生成」填好 Key（豆包那把 key 可以复用，但 <b>Seedance 模型要在方舟控制台单独开通</b>）。<br />
-            2. 图片建议已去背景（透明背景），这样后续做帧动画时不用再抠一遍。
+            {t('vd.prereq.body', lang)
+              .split('\n')
+              .map((line, index) => (
+                <span key={line}>
+                  {index > 0 ? <br /> : null}
+                  {line}
+                </span>
+              ))}
           </p>
         </section>
       </div>
@@ -383,12 +408,14 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setImagePickerOpen(false)}>
           <div className="modal modal--picker" onClick={(event) => event.stopPropagation()}>
             <header className="modal__head">
-              <h2>选择图片</h2>
-              <span className="tag">{images.length} 张可选</span>
+              <h2>{t('vd.picker.imageTitle', lang)}</h2>
+              <span className="tag">
+                {t('vd.pick.count', lang, { count: String(images.length) })}
+              </span>
             </header>
             <div className="modal__body">
               {images.length === 0 ? (
-                <p className="muted">素材库里还没有图片，先去「图像生成」出图或导入图片。</p>
+                <p className="muted">{t('vd.picker.empty', lang)}</p>
               ) : (
                 <div className="picker-grid">
                   {images.map((item) => (
@@ -402,7 +429,11 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
                         setImagePickerOpen(false);
                       }}
                     >
-                      {item.thumbUrl ? <img src={item.thumbUrl} alt={item.fileName} /> : <span>无缩略图</span>}
+                      {item.thumbUrl ? (
+                        <img src={item.thumbUrl} alt={item.fileName} />
+                      ) : (
+                        <span>{t('vd.noThumb', lang)}</span>
+                      )}
                       {selected?.id === item.id ? <span className="picker-item__badge">✓</span> : null}
                     </button>
                   ))}
@@ -410,10 +441,10 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
               )}
             </div>
             <footer className="modal__foot">
-              <span className="field__hint">点图片即选定</span>
+              <span className="field__hint">{t('vd.picker.foot', lang)}</span>
               <div className="actions">
                 <button type="button" className="btn btn--ghost" onClick={() => setImagePickerOpen(false)}>
-                  取消
+                  {t('vd.btn.cancel', lang)}
                 </button>
               </div>
             </footer>
@@ -425,12 +456,14 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPickerOpen(false)}>
           <div className="modal modal--picker" onClick={(event) => event.stopPropagation()}>
             <header className="modal__head">
-              <h2>选择参考图</h2>
-              <span className="tag">已选 {referenceIds.length} / 4</span>
+              <h2>{t('vd.picker.refTitle', lang)}</h2>
+              <span className="tag">
+                {t('vd.refs.selected', lang, { count: String(referenceIds.length) })}
+              </span>
             </header>
             <div className="modal__body">
               {images.length === 0 ? (
-                <p className="muted">素材库里还没有图片，先去「图像生成」出图或导入图片。</p>
+                <p className="muted">{t('vd.picker.empty', lang)}</p>
               ) : (
                 <div className="picker-grid">
                   {images.map((item) => {
@@ -443,7 +476,11 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
                         onClick={() => toggleReference(item.id)}
                         title={item.fileName}
                       >
-                        {item.thumbUrl ? <img src={item.thumbUrl} alt={item.fileName} /> : <span>无缩略图</span>}
+                        {item.thumbUrl ? (
+                          <img src={item.thumbUrl} alt={item.fileName} />
+                        ) : (
+                          <span>{t('vd.noThumb', lang)}</span>
+                        )}
                         {picked ? <span className="picker-item__badge">{referenceIds.indexOf(item.id) + 1}</span> : null}
                       </button>
                     );
@@ -452,13 +489,13 @@ export function VideoStudioPage({ onOpenModelSettings }: VideoStudioPageProps): 
               )}
             </div>
             <footer className="modal__foot">
-              <span className="field__hint">最多 4 张，点图选中 / 取消</span>
+              <span className="field__hint">{t('vd.picker.refFoot', lang)}</span>
               <div className="actions">
                 <button type="button" className="btn btn--ghost" onClick={() => setReferenceIds([])}>
-                  清空
+                  {t('vd.btn.clear', lang)}
                 </button>
                 <button type="button" className="btn btn--primary" onClick={() => setPickerOpen(false)}>
-                  完成
+                  {t('vd.btn.done', lang)}
                 </button>
               </div>
             </footer>
