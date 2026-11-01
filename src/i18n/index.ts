@@ -15,6 +15,7 @@
  */
 import { useEffect, useState } from 'react';
 import { MAIN_DICTS } from '@shared/err-i18n';
+import { notifyDataChanged } from '../state/refresh';
 
 export type Lang = 'zh-CN' | 'zh-TW' | 'en';
 
@@ -2633,6 +2634,10 @@ export function setLang(next: Lang): void {
   current = next;
   document.documentElement.lang = next;
   for (const fn of listeners) fn();
+  /* 有一批文字是主进程生成好再返回的（错误信息、余额、用量说明、本地模型名），
+     页面拿到后缓存在自己的 state 里。切语言不会让它们自动变语言，
+     所以这里广播一次「数据变了」，让各页面重新走 IPC 拿新语言下的文案。 */
+  notifyDataChanged();
 }
 
 /** 取文案；本字典缺 key 时查主进程那份（服务商说明等共用），再回落简中，最后显示 key */

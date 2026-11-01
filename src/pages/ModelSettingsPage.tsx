@@ -687,7 +687,7 @@ export function ModelSettingsPage({ onDirtyChange, registerSave }: ModelSettings
                   </div>
                 ) : null}
                 <div className="balance-foot">
-                  <span>{usage.note}</span>
+                  <span>{t('app.usage.note', lang)}</span>
                 </div>
               </div>
             ) : null}

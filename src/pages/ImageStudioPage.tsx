@@ -419,7 +419,7 @@ export function ImageStudioPage({ onOpenModelSettings }: ImageStudioPageProps): 
             </div>
 
             <div className="balance-foot">
-              <span>{usage ? usage.note : t('im.usage.counting', lang)}</span>
+              <span>{usage ? t('app.usage.note', lang) : t('im.usage.counting', lang)}</span>
             </div>
           </div>
 
