@@ -953,8 +953,8 @@ export function FrameStudioPage({ onOpenModelSettings }: FrameStudioPageProps): 
   const savePreviewFrames = async (frameList: string[], removed: boolean): Promise<void> => {
     if (frameList.length === 0) return;
     try {
-      // 先删掉上一轮预览（不存在也没关系）
-      await window.skeletonElf.frames.remove('_preview');
+      /* 不再先 frames.remove('_preview')：主进程那边已经改成复用目录、清旧帧。
+         Windows 上「刚删目录立刻重建同名目录」会 EPERM（删除挂起），抽帧一快就必现。 */
       const res = await window.skeletonElf.frames.save({
         name: '_preview',
         sourceVideo: selected?.fileName ?? '',

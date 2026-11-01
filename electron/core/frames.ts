@@ -323,14 +323,30 @@ export function saveFrameProject(input: SaveFrameProjectInput): FrameProjectView
      导致刚抽完的帧落在 frames/<id>，要等下次启动迁移才「看得见」。 */
   const root = getDataDirs().frameSources;
   const base = sanitizeFolderName(input.name || 'frames');
-  // 同名一律报错交给用户改名，不再自动加 _2 —— 避免悄悄生成一堆 folder_2/3/4
-  if (fs.existsSync(path.join(root, base))) {
-    throw new Error(msg('err.frames.nameExists', { name: base }));
+  const dir = path.join(root, base);
+
+  if (isInternal) {
+    /* 内部临时集合（_preview）：复用同一个目录，只清掉上一轮的帧。
+       为什么不「先删目录再建」——Windows 上目录删除是延迟完成的，
+       刚 rmSync 掉就 mkdir 同名目录会报 EPERM（删除挂起期间无法重建），
+       抽帧一快就必现。复用目录既没有这个竞态，也省一次磁盘操作。 */
+    fs.mkdirSync(dir, { recursive: true });
+    for (const entry of fs.readdirSync(dir)) {
+      if (!/^frame_\d+\.png$/i.test(entry) && entry !== 'meta.json') continue;
+      try {
+        fs.unlinkSync(path.join(dir, entry));
+      } catch {
+        /* 文件被预览/播放器占着删不掉：同名帧后面会被覆盖写，留着不影响 */
+      }
+    }
+  } else {
+    // 同名一律报错交给用户改名，不再自动加 _2 —— 避免悄悄生成一堆 folder_2/3/4
+    if (fs.existsSync(dir)) {
+      throw new Error(msg('err.frames.nameExists', { name: base }));
+    }
+    fs.mkdirSync(dir, { recursive: true });
   }
   const id = base;
-
-  const dir = path.join(root, id);
-  fs.mkdirSync(dir, { recursive: true });
 
   frames.forEach((dataUrl, index) => {
     const buffer = decodeDataUrl(dataUrl);
